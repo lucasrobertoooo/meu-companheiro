@@ -9,12 +9,31 @@ const POLL_MS = 25000;
 let _pending = {};        // otimista: mapa key→alvo(bool) aguardando o Mac confirmar no snapshot
 
 const AURA = { normal:'rgba(138,92,240,.42)', prata:'rgba(184,184,196,.44)', ouro:'rgba(232,192,90,.52)' };
+
+// ícones SVG (line-style, herdam a cor via currentColor) — substituem os emojis
+const _svg = p => `<svg class="ic-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+const ICONS = {
+  agua:        _svg('<path d="M12 2.7S5.5 9.7 5.5 14a6.5 6.5 0 0 0 13 0C18.5 9.7 12 2.7 12 2.7z"/>'),
+  pelvico:     _svg('<path d="M22 12h-4l-3 8-4-16-3 8H2"/>'),
+  meditacao:   _svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/>'),
+  leitura:     _svg('<rect x="5" y="4" width="14" height="16" rx="1.6"/><path d="M9 4v16"/>'),
+  mobilidade:  _svg('<circle cx="12" cy="4" r="1.7"/><path d="M12 6.6v6M12 12.6l-3.6 5.6M12 12.6l3.6 5.6M6 9.4l6 1.7 6-1.7"/>'),
+  prioridades: _svg('<path d="M9 12.2l2.3 2.3L22 4"/><path d="M21 12.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11.5"/>'),
+  skincare:    _svg('<path d="M12 3l1.9 5.6 5.6 1.9-5.6 1.9L12 18l-1.9-5.6L4.5 10.5 10.1 8.6z"/>'),
+  flame:       _svg('<path d="M12 2.5c2.5 3.2 4 5.4 4 8a4 4 0 0 1-8 0c0-.9.3-1.7.8-2.4C7.2 8.2 8.2 10.6 9.6 11 8.9 8 10 4.9 12 2.5z"/>'),
+  check:       _svg('<path d="M20 6.5L9.5 17 5 12.5"/>'),
+  sun:         _svg('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M4.7 4.7l1.5 1.5M17.8 17.8l1.5 1.5M2.5 12h2.2M19.3 12h2.2M4.7 19.3l1.5-1.5M17.8 6.2l1.5-1.5"/>'),
+  moon:        _svg('<path d="M20 14.4A8 8 0 1 1 9.6 4 6.5 6.5 0 0 0 20 14.4z"/>'),
+  link:        _svg('<path d="M10.5 13.5a4 4 0 0 0 6 .4l2-2a4 4 0 0 0-5.7-5.7l-1.1 1.1"/><path d="M13.5 10.5a4 4 0 0 0-6-.4l-2 2a4 4 0 0 0 5.7 5.7l1.1-1.1"/>'),
+};
+const icon = n => ICONS[n] || '';
+
 const TODAY_MODULES = [
-  { key:'agua',       ic:'💧', lbl:'Água' },
-  { key:'pelvico',    ic:'💪', lbl:'Pélvico' },
-  { key:'meditacao',  ic:'🧘', lbl:'Meditação' },
-  { key:'leitura',    ic:'📖', lbl:'Leitura' },
-  { key:'mobilidade', ic:'🤸', lbl:'Mobilidade' },
+  { key:'agua',       lbl:'Água' },
+  { key:'pelvico',    lbl:'Pélvico' },
+  { key:'meditacao',  lbl:'Meditação' },
+  { key:'leitura',    lbl:'Leitura' },
+  { key:'mobilidade', lbl:'Mobilidade' },
 ];
 
 /* ---------- config ---------- */
@@ -57,7 +76,7 @@ function uuid(){
 // PRECISA de token com Contents: Read AND Write (o de leitura dá 403 aqui).
 async function postEvent(partial){
   const cfg = getCfg();
-  if (!cfg || !cfg.repo || !cfg.pat) throw new Error('conecte o token primeiro (⚙)');
+  if (!cfg || !cfg.repo || !cfg.pat) throw new Error('conecte o token primeiro (engrenagem)');
   const [owner, repo] = cfg.repo.split('/');
   const id = uuid();
   const evt = { id, ts: Math.floor(Date.now()/1000), date: todayStr(), source: 'mobile', v: 1, ...partial };
@@ -80,7 +99,7 @@ function renderHero(c){
   const src = CREATURE_ART[String(form)] || CREATURE_ART['1'];
   if (src && img.getAttribute('src') !== src) img.setAttribute('src', src);
   $('aura').style.setProperty('--auraColor', AURA[c.prestige] || AURA.normal);
-  $('moodEmoji').textContent = c.moodEmoji || '';
+  $('moodEmoji').innerHTML = icon(c.moodKey === 'radiante' ? 'sun' : 'moon');
   $('crName').textContent = c.name || 'Companheiro';
   $('crLevel').textContent = `${c.levelName || ''} · nível ${c.level ?? '—'}`;
   const pct = Math.round((c.levelProgress || 0) * 100);
@@ -90,19 +109,27 @@ function renderHero(c){
     : `${c.xp} xp · máximo`;
   $('crCap').textContent = c.cap || '';
   const chips = [];
-  if (c.streak >= 1) chips.push(`<span class="chip hot">🔥 ${c.streak} ${c.streak===1?'dia':'dias'}</span>`);
+  if (c.streak >= 1) chips.push(`<span class="chip hot">${icon('flame')} ${c.streak} ${c.streak===1?'dia':'dias'}</span>`);
   if (c.best > 1)   chips.push(`<span class="chip">recorde ${c.best}d</span>`);
   if (c.prestige && c.prestige !== 'normal') chips.push(`<span class="chip gold">✦ ${c.prestige}</span>`);
   if (c.restDay)    chips.push(`<span class="chip">descanso</span>`);
   $('chips').innerHTML = chips.join('');
 }
 
-function renderToday(done){
-  done = done || {};
+function renderToday(snap){
+  const done = snap.doneToday || {};
+  const pel = snap.pelvico;                 // {done, total} — pélvico é 3x/dia
   $('todayGrid').innerHTML = TODAY_MODULES.map(m => {
-    const on = !!done[m.key];
+    let on, badge;
+    if (m.key === 'pelvico' && pel && pel.total){
+      on = pel.done >= pel.total;
+      badge = on ? icon('check') : `<span class="frac">${pel.done}/${pel.total}</span>`;
+    } else {
+      on = !!done[m.key];
+      badge = on ? icon('check') : icon(m.key);
+    }
     return `<div class="pill ${on?'done':''}">
-      <span class="dot">${on?'✓':m.ic}</span>
+      <span class="dot">${badge}</span>
       <span class="lbl">${m.lbl}</span>
     </div>`;
   }).join('');
@@ -136,7 +163,7 @@ function renderCards(snap){
   // ÁGUA (com anel de %) + botão "+1 garrafa"
   if (snap.water){
     const w = snap.water, p = Math.max(0, Math.min(100, w.pct||0));
-    parts.push(card('Água', '💧', `meta ${(w.goalMl/1000).toFixed(1)} L`, `
+    parts.push(card('Água', icon('agua'), `meta ${(w.goalMl/1000).toFixed(1)} L`, `
       <div class="ring-row">
         <div class="ring" style="--p:${p};position:relative"><b>${p}%</b></div>
         <div class="ring-meta"><b>${(w.ml/1000).toFixed(2)} L</b> bebidos hoje
@@ -150,14 +177,14 @@ function renderCards(snap){
     const pr = snap.prioridades;
     const body = (pr.itens && pr.itens.length)
       ? `<div class="todo-list">${pr.itens.map(t=>`<button class="todo-item" data-ev="prioridade.done" data-text="${escapeHtml(t)}"><span class="todo-check">○</span><span class="todo-txt">${escapeHtml(t)}</span></button>`).join('')}</div>`
-      : `<div class="todo-empty">tudo em dia por aqui ✨</div>`;
-    parts.push(card('Prioridades', '🎯', `${pr.pending}/${pr.total} pendentes`, body));
+      : `<div class="todo-empty">tudo em dia por aqui ${icon('check')}</div>`;
+    parts.push(card('Prioridades', icon('prioridades'), `${pr.pending}/${pr.total} pendentes`, body));
   }
 
   // SKINCARE (AM/PM/streak) + botões toggle marcar⇄desfazer de cada rotina
   if (snap.skincare){
     const s = snap.skincare, am = s.am||{}, pm = s.pm||{};
-    parts.push(card('Skincare', '🧴', s.streak!=null?`🔥 ${s.streak}d`:'', `
+    parts.push(card('Skincare', icon('skincare'), s.streak!=null?`${icon('flame')} ${s.streak}d`:'', `
       <div class="skin-row">
         <div class="skin-slot ${am.complete?'full':''}"><div class="s-lbl">Manhã</div><div class="s-val">${am.done||0}/${am.total||0}</div></div>
         <div class="skin-slot ${pm.complete?'full':''}"><div class="s-lbl">Noite</div><div class="s-val">${pm.done||0}/${pm.total||0}</div></div>
@@ -169,7 +196,7 @@ function renderCards(snap){
   if (snap.doneToday){
     const done = !!snap.doneToday.meditacao, pend = pendingFor('meditacao', done);
     const lbl = pend ? 'enviando… atualizando' : (done ? 'atenção feita hoje ✓' : 'marcar atenção do dia');
-    parts.push(card('Atenção / Meditação', '🧘', '',
+    parts.push(card('Atenção / Meditação', icon('meditacao'), '',
       `<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="meditacao" data-done="${done?1:0}" ${(pend||done)?'disabled':''}>${lbl}</button>`));
   }
 
@@ -181,7 +208,7 @@ function renderCards(snap){
       return `<button class="book-btn ${pend?'wait':(b.done?'done':'')}" data-ev="leitura" data-book="${escapeHtml(b.id)}" data-done="${b.done?1:0}" ${(pend||b.done)?'disabled':''}>
         <span class="book-title">${escapeHtml(b.title)}</span><span class="book-mark">${st}</span></button>`;
     }).join('');
-    parts.push(card('Leitura', '📖', '', `<div class="book-list">${rows}</div>`));
+    parts.push(card('Leitura', icon('leitura'), '', `<div class="book-list">${rows}</div>`));
   }
 
   $('cards').innerHTML = parts.join('');
@@ -201,7 +228,7 @@ function render(snap){
   document.body.classList.remove('loading', 'needcfg');
   renderFreshness(snap);
   renderHero(snap.creature || {});
-  renderToday(snap.doneToday);
+  renderToday(snap);
   renderCards(snap);
 }
 

@@ -38,7 +38,16 @@ body{
 @keyframes breathe{0%,100%{transform:scale(.94);opacity:.75}50%{transform:scale(1.06);opacity:1}}
 .crImg{position:relative;width:170px;height:170px;object-fit:contain;
   image-rendering:auto;filter:drop-shadow(0 8px 22px rgba(0,0,0,.55))}
-.mood-emoji{position:absolute;right:16px;top:14px;font-size:26px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))}
+.mood-emoji{position:absolute;right:14px;top:12px;color:var(--gold);filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
+
+/* ícones SVG (substituem emojis) — herdam a cor do contexto via currentColor */
+.ic-svg{width:1em;height:1em;display:inline-block;vertical-align:-0.15em;flex:none}
+.pill .dot .ic-svg{width:17px;height:17px}
+.card-title .ic .ic-svg{width:18px;height:18px;vertical-align:-0.22em}
+.chip .ic-svg{width:12.5px;height:12.5px;vertical-align:-0.12em}
+.chip.hot .ic-svg{color:#f2884f}
+.mood-emoji .ic-svg{width:22px;height:22px}
+.pill .dot .frac{font-size:12.5px;font-weight:800;line-height:1}
 .hero-name{font-size:26px;font-weight:800;letter-spacing:.2px}
 .hero-level{font-size:13px;color:var(--muted);margin-top:2px}
 .xpbar{width:78%;max-width:280px;height:8px;border-radius:6px;background:#26262c;margin:12px 0 5px;overflow:hidden}
