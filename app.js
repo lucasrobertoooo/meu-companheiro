@@ -133,7 +133,7 @@ function skinBtn(routine, slot){
 function renderCards(snap){
   const parts = [];
 
-  // ÁGUA (com anel de %)
+  // ÁGUA (com anel de %) + botão "+1 garrafa"
   if (snap.water){
     const w = snap.water, p = Math.max(0, Math.min(100, w.pct||0));
     parts.push(card('Água', '💧', `meta ${(w.goalMl/1000).toFixed(1)} L`, `
@@ -141,14 +141,15 @@ function renderCards(snap){
         <div class="ring" style="--p:${p};position:relative"><b>${p}%</b></div>
         <div class="ring-meta"><b>${(w.ml/1000).toFixed(2)} L</b> bebidos hoje
           <small>${w.bottles||0} garrafa(s) de ${w.bottleMl||0} ml</small></div>
-      </div>`));
+      </div>
+      <button class="mark-btn" data-ev="agua.bottle">+1 garrafa (${w.bottleMl||700} ml)</button>`));
   }
 
-  // PRIORIDADES
+  // PRIORIDADES (cada item toca pra marcar feito)
   if (snap.prioridades){
     const pr = snap.prioridades;
     const body = (pr.itens && pr.itens.length)
-      ? `<ul class="todo-list">${pr.itens.map(t=>`<li>${escapeHtml(t)}</li>`).join('')}</ul>`
+      ? `<div class="todo-list">${pr.itens.map(t=>`<button class="todo-item" data-ev="prioridade.done" data-text="${escapeHtml(t)}"><span class="todo-check">○</span><span class="todo-txt">${escapeHtml(t)}</span></button>`).join('')}</div>`
       : `<div class="todo-empty">tudo em dia por aqui ✨</div>`;
     parts.push(card('Prioridades', '🎯', `${pr.pending}/${pr.total} pendentes`, body));
   }
@@ -263,6 +264,25 @@ $('cards').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-ev]');
   if (!btn || btn.disabled) return;
   const ev = btn.dataset.ev, label = btn.textContent;
+
+  // ÁGUA / PRIORIDADE: tocam o sagrado + dão XP → aplicam pelo widget quando o hub está aberto.
+  // fire-and-forget (não travam esperando confirmação, que pode demorar se o hub estiver fechado).
+  if (ev === 'agua.bottle' || ev === 'prioridade.done'){
+    const evt = ev === 'agua.bottle' ? { type:'agua.bottle' } : { type:'prioridade.done', text: btn.dataset.text };
+    const chk = btn.querySelector('.todo-check');
+    btn.disabled = true;
+    if (ev === 'agua.bottle') btn.textContent = 'enviado ✓'; else if (chk) chk.textContent = '✓';
+    try{
+      await postEvent(evt);
+      [6, 14, 24, 34].forEach(sec => setTimeout(refresh, sec * 1000));   // pega quando o hub aplicar
+      if (ev === 'agua.bottle') setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 4000);
+    }catch(err){
+      btn.disabled = false; if (ev === 'agua.bottle') btn.textContent = label; else if (chk) chk.textContent = '○';
+      flashError(err.message || 'falha ao enviar');
+    }
+    return;
+  }
+
   let evt, key, target;
   if (ev === 'skincare.am' || ev === 'skincare.pm'){         // toggle
     const routine = ev.split('.')[1];
