@@ -6,7 +6,7 @@ const $ = id => document.getElementById(id);
 const CFG_KEY = 'companheiro.sync.cfg';
 const SNAP_CACHE = 'companheiro.sync.lastSnap';
 const POLL_MS = 25000;
-let _pendingPm = false;   // otimista: "enviei o marcar-noite, aguardando o Mac confirmar no snapshot"
+let _pendingPm = null;    // otimista: alvo aguardando o Mac confirmar (true=marcar, false=desmarcar, null=nada)
 
 const AURA = { normal:'rgba(138,92,240,.42)', prata:'rgba(184,184,196,.44)', ouro:'rgba(232,192,90,.52)' };
 const TODAY_MODULES = [
@@ -143,15 +143,18 @@ function renderCards(snap){
   if (snap.skincare){
     const s = snap.skincare, am = s.am||{}, pm = s.pm||{};
     const pmDone = !!pm.complete;
-    if (pmDone) _pendingPm = false;               // snapshot confirmou → limpa o otimismo
-    const pending = _pendingPm && !pmDone;
-    const btnLabel = pmDone ? 'noite feita ✓' : (pending ? 'enviado ✓ · atualizando…' : 'marcar rotina da noite');
+    if (_pendingPm !== null && _pendingPm === pmDone) _pendingPm = null;   // snapshot confirmou o alvo
+    const pending = _pendingPm !== null;
+    let btnLabel, btnCls;
+    if (pending)      { btnLabel = (_pendingPm ? 'enviando…' : 'desfazendo…') + ' atualizando'; btnCls = 'wait'; }
+    else if (pmDone)  { btnLabel = 'noite feita ✓ · toque pra desfazer'; btnCls = 'done'; }
+    else              { btnLabel = 'marcar rotina da noite'; btnCls = ''; }
     parts.push(card('Skincare', '🧴', s.streak!=null?`🔥 ${s.streak}d`:'', `
       <div class="skin-row">
         <div class="skin-slot ${am.complete?'full':''}"><div class="s-lbl">Manhã</div><div class="s-val">${am.done||0}/${am.total||0}</div></div>
         <div class="skin-slot ${pmDone?'full':''}"><div class="s-lbl">Noite</div><div class="s-val">${pm.done||0}/${pm.total||0}</div></div>
       </div>
-      <button class="mark-btn ${(pmDone||pending)?'done':''}" data-ev="skincare.pm" ${(pmDone||pending)?'disabled':''}>${btnLabel}</button>`));
+      <button class="mark-btn ${btnCls}" data-ev="skincare.pm" data-done="${pmDone?1:0}" ${pending?'disabled':''}>${btnLabel}</button>`));
   }
 
   $('cards').innerHTML = parts.join('');
@@ -235,13 +238,13 @@ $('cards').addEventListener('click', async (e) => {
   if (!btn || btn.disabled) return;
   if (btn.dataset.ev === 'skincare.pm'){
     const label = btn.textContent;
-    btn.disabled = true; btn.textContent = 'enviando…';
+    const target = btn.dataset.done !== '1';   // toggle: se está feito → desmarca; senão → marca
+    btn.disabled = true; btn.textContent = target ? 'enviando…' : 'desfazendo…';
     try{
-      await postEvent({ type: 'skincare.done', routine: 'pm' });
-      _pendingPm = true;                    // otimista até o snapshot confirmar (sobrevive aos re-renders)
-      btn.textContent = 'enviado ✓ · atualizando…';
-      // o Mac processa no tick (~30s) e publica novo snapshot → estes polls pegam a confirmação
-      [8, 20, 35, 50].forEach(sec => setTimeout(refresh, sec * 1000));
+      await postEvent({ type: 'skincare.done', routine: 'pm', done: target });
+      _pendingPm = target;                  // otimista até o snapshot confirmar (sobrevive aos re-renders)
+      // o Mac processa no tick (~15s) e publica novo snapshot → estes polls pegam a confirmação
+      [4, 9, 15, 22, 32].forEach(sec => setTimeout(refresh, sec * 1000));
     }catch(err){
       btn.disabled = false; btn.textContent = label;
       flashError(err.message || 'falha ao enviar');

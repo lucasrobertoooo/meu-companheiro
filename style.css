@@ -98,6 +98,7 @@ body{
   transition:opacity .2s}
 .mark-btn:active{opacity:.7}
 .mark-btn.done{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0}
+.mark-btn.wait{opacity:.55;cursor:default}
 .mark-btn:disabled{cursor:default}
 
 /* estados de carregamento / erro */
