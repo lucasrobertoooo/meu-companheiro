@@ -100,6 +100,20 @@ body{
 .mark-btn.done{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0}
 .mark-btn.wait{opacity:.55;cursor:default}
 .mark-btn:disabled{cursor:default}
+.btn-row{display:flex;gap:10px;margin-top:12px}
+.mark-btn.half{margin-top:0;flex:1;padding:11px 8px;font-size:13px}
+
+/* lista de livros (leitura) */
+.book-list{display:flex;flex-direction:column;gap:8px}
+.book-btn{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
+  padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--paper-2);
+  color:var(--ink-soft);font-size:14px;font-family:inherit;font-weight:600;cursor:pointer;text-align:left;transition:opacity .2s}
+.book-btn:active{opacity:.7}
+.book-btn .book-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.book-btn .book-mark{flex:none;font-size:12px;font-weight:700;color:var(--clay)}
+.book-btn.done{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0}
+.book-btn.done .book-mark{color:#bcd3b0}
+.book-btn.wait{opacity:.55;cursor:default}
 
 /* estados de carregamento / erro */
 .state-msg{text-align:center;color:var(--muted);font-size:13px;padding:30px 10px}
