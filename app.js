@@ -43,6 +43,35 @@ async function fetchSnapshot(){
   return r.json();
 }
 
+/* ---------- escrita de evento (celular → inbox do repo) ---------- */
+function todayStr(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function uuid(){
+  if (crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'e-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+}
+// cria inbox/{uuid}.json no repo via Contents API (arquivo novo = zero conflito de escrita).
+// PRECISA de token com Contents: Read AND Write (o de leitura dá 403 aqui).
+async function postEvent(partial){
+  const cfg = getCfg();
+  if (!cfg || !cfg.repo || !cfg.pat) throw new Error('conecte o token primeiro (⚙)');
+  const [owner, repo] = cfg.repo.split('/');
+  const id = uuid();
+  const evt = { id, ts: Math.floor(Date.now()/1000), date: todayStr(), source: 'mobile', v: 1, ...partial };
+  const json = JSON.stringify(evt);
+  const b64 = btoa(unescape(encodeURIComponent(json)));   // base64 utf-8-safe
+  const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/inbox/${id}.json`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${cfg.pat}`, Accept: 'application/vnd.github+json' },
+    body: JSON.stringify({ message: `evt ${evt.type}`, content: b64, branch: 'main' }),
+  });
+  if (r.status === 401 || r.status === 403) throw new Error('token sem permissão de escrita');
+  if (!r.ok) throw new Error('GitHub ' + r.status);
+  return true;
+}
+
 /* ---------- render ---------- */
 function renderHero(c){
   const form = c.form || 1;
@@ -109,14 +138,18 @@ function renderCards(snap){
     parts.push(card('Prioridades', '🎯', `${pr.pending}/${pr.total} pendentes`, body));
   }
 
-  // SKINCARE (AM/PM/streak)
+  // SKINCARE (AM/PM/streak) + botão "marcar noite" (o gatilho do projeto)
   if (snap.skincare){
     const s = snap.skincare, am = s.am||{}, pm = s.pm||{};
+    const pmDone = !!pm.complete;
     parts.push(card('Skincare', '🧴', s.streak!=null?`🔥 ${s.streak}d`:'', `
       <div class="skin-row">
         <div class="skin-slot ${am.complete?'full':''}"><div class="s-lbl">Manhã</div><div class="s-val">${am.done||0}/${am.total||0}</div></div>
-        <div class="skin-slot ${pm.complete?'full':''}"><div class="s-lbl">Noite</div><div class="s-val">${pm.done||0}/${pm.total||0}</div></div>
-      </div>`));
+        <div class="skin-slot ${pmDone?'full':''}"><div class="s-lbl">Noite</div><div class="s-val">${pm.done||0}/${pm.total||0}</div></div>
+      </div>
+      <button class="mark-btn ${pmDone?'done':''}" data-ev="skincare.pm" ${pmDone?'disabled':''}>
+        ${pmDone?'noite feita ✓':'marcar rotina da noite'}
+      </button>`));
   }
 
   $('cards').innerHTML = parts.join('');
@@ -193,6 +226,25 @@ async function saveCfg(){
     st.className='modal-status err'; st.textContent=e.message || 'falhou';
   }
 }
+
+/* ---------- ações (delegado uma vez; renderCards troca o innerHTML a cada poll) ---------- */
+$('cards').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-ev]');
+  if (!btn || btn.disabled) return;
+  if (btn.dataset.ev === 'skincare.pm'){
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'enviando…';
+    try{
+      await postEvent({ type: 'skincare.done', routine: 'pm' });
+      btn.textContent = 'enviado ✓ · atualizando';
+      _lastRendered = null;                 // força repintar quando o snapshot novo chegar
+      setTimeout(refresh, 3000);            // dá tempo do Mac puxar+aplicar+publicar
+    }catch(err){
+      btn.disabled = false; btn.textContent = label;
+      flashError(err.message || 'falha ao enviar');
+    }
+  }
+});
 
 /* ---------- boot ---------- */
 $('gear').addEventListener('click', openModal);

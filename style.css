@@ -93,6 +93,12 @@ body{
 .skin-slot .s-val{font-size:16px;font-weight:800;margin-top:3px}
 .skin-slot.full{background:var(--sage-soft);border-color:#3a4a36}
 .skin-slot.full .s-val{color:#bcd3b0}
+.mark-btn{width:100%;margin-top:12px;padding:12px;border-radius:12px;border:1px solid #5a3a2c;
+  background:var(--clay-soft);color:#f2b79e;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;
+  transition:opacity .2s}
+.mark-btn:active{opacity:.7}
+.mark-btn.done{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0}
+.mark-btn:disabled{cursor:default}
 
 /* estados de carregamento / erro */
 .state-msg{text-align:center;color:var(--muted);font-size:13px;padding:30px 10px}
