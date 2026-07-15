@@ -1,0 +1,5 @@
+# DADOS pessoais — NUNCA vão pro repo público do PWA.
+# Em dev, snapshot.json local serve de fallback; em produção o PWA busca o
+# snapshot do repo PRIVADO via GitHub Contents API autenticada (PAT no aparelho).
+snapshot.json
+.DS_Store

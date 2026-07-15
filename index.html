@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <meta name="theme-color" content="#101012">
+  <title>Companheiro</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Companheiro">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="bg"></div>
+
+  <header class="bar">
+    <div class="bar-title">Companheiro</div>
+    <div class="bar-right">
+      <span id="freshness" class="freshness" title="última atualização">—</span>
+      <button id="gear" class="gear" aria-label="Configurar sync">⚙</button>
+    </div>
+  </header>
+
+  <main class="wrap" id="app">
+    <!-- HERÓI: criatura -->
+    <section class="hero" id="hero">
+      <div class="hero-art">
+        <div class="aura" id="aura"></div>
+        <img id="crImg" class="crImg" alt="" draggable="false">
+        <div class="mood-emoji" id="moodEmoji"></div>
+      </div>
+      <div class="hero-name" id="crName">—</div>
+      <div class="hero-level" id="crLevel">—</div>
+      <div class="xpbar"><div class="xpfill" id="xpfill"></div></div>
+      <div class="xpnum" id="xpnum">—</div>
+      <div class="hero-cap" id="crCap">—</div>
+      <div class="chips" id="chips"></div>
+    </section>
+
+    <!-- HOJE: resumo de feito/não-feito -->
+    <section class="today" id="today">
+      <h2 class="sec-title">Hoje</h2>
+      <div class="today-grid" id="todayGrid"></div>
+    </section>
+
+    <!-- CARDS dos módulos -->
+    <section class="cards" id="cards"></section>
+
+    <!-- Primeiro uso (sem token): aparece no site público até conectar -->
+    <div class="onboard" id="onboard">
+      <div class="onboard-emoji">👋</div>
+      <p>Toque em <b>⚙</b> lá em cima e cole o seu token<br>pra conectar ao seu Companheiro.</p>
+    </div>
+  </main>
+
+  <!-- Modal de configuração do sync (PAT + repo) -->
+  <div class="modal-backdrop" id="modal" hidden>
+    <div class="modal">
+      <h3>Sync do celular</h3>
+      <p class="modal-sub">Lê o <code>snapshot.json</code> do repo privado via GitHub API. O token fica só neste aparelho.</p>
+      <label>Dono/Repo <input id="cfgRepo" placeholder="lucasrobertoooo/companheiro-sync" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      <label>Token (PAT fine-grained) <input id="cfgPat" type="password" placeholder="github_pat_…" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      <label>Arquivo <input id="cfgPath" placeholder="snapshot.json" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      <div class="modal-status" id="cfgStatus"></div>
+      <div class="modal-actions">
+        <button id="cfgClear" class="btn ghost">Limpar</button>
+        <button id="cfgSave" class="btn">Salvar & testar</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
