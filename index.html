@@ -71,15 +71,16 @@
     </div>
   </div>
 
-  <!-- Modal de nota de uma prioridade -->
-  <div class="modal-backdrop" id="noteModal" hidden>
+  <!-- Editor de prioridade (nova / editar texto + nota / apagar) -->
+  <div class="modal-backdrop" id="editModal" hidden>
     <div class="modal">
-      <h3>Nota</h3>
-      <div class="note-item-text" id="noteItemText"></div>
-      <textarea id="noteText" rows="4" placeholder="adicione uma nota a esta prioridade…"></textarea>
+      <h3 id="editTitle">Editar prioridade</h3>
+      <label>Tarefa <input id="editText" placeholder="o que fazer" autocapitalize="sentences"></label>
+      <label>Nota <textarea id="editNote" rows="3" placeholder="detalhes (opcional)"></textarea></label>
       <div class="modal-actions">
-        <button id="noteCancel" class="btn ghost">Cancelar</button>
-        <button id="noteSave" class="btn">Salvar</button>
+        <button id="editDelete" class="btn danger">Apagar</button>
+        <button id="editCancel" class="btn ghost">Cancelar</button>
+        <button id="editSave" class="btn">Salvar</button>
       </div>
     </div>
   </div>

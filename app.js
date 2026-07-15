@@ -28,6 +28,9 @@ const ICONS = {
   sun:         _svg('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M4.7 4.7l1.5 1.5M17.8 17.8l1.5 1.5M2.5 12h2.2M19.3 12h2.2M4.7 19.3l1.5-1.5M17.8 6.2l1.5-1.5"/>'),
   moon:        _svg('<path d="M20 14.4A8 8 0 1 1 9.6 4 6.5 6.5 0 0 0 20 14.4z"/>'),
   link:        _svg('<path d="M10.5 13.5a4 4 0 0 0 6 .4l2-2a4 4 0 0 0-5.7-5.7l-1.1 1.1"/><path d="M13.5 10.5a4 4 0 0 0-6-.4l-2 2a4 4 0 0 0 5.7 5.7l1.1-1.1"/>'),
+  up:          _svg('<path d="M18 15l-6-6-6 6"/>'),
+  down:        _svg('<path d="M6 9l6 6 6-6"/>'),
+  plus:        _svg('<path d="M12 5v14M5 12h14"/>'),
 };
 const icon = n => ICONS[n] || '';
 
@@ -167,16 +170,20 @@ function prioBody(pr){
   const filtered = items.filter(i => tab === 'todos' || (i.type || 'pessoal') === tab);
   const tabs = ['trabalho', 'pessoal', 'todos']
     .map(t => `<button class="ptab ${t === tab ? 'on' : ''}" data-ptab="${t}">${t}</button>`).join('');
-  const rows = filtered.length ? filtered.map(it => {
+  const rows = filtered.length ? filtered.map((it, i) => {
     const pend = pendingFor('intent:' + it.id, it.done);
     const note = it.note ? `<div class="prio-note">${escapeHtml(it.note)}</div>` : '';
+    const up = i > 0 ? `<button class="prio-mv" data-ev="intent.up" data-id="${it.id}" aria-label="subir">${icon('up')}</button>` : '<span class="prio-mv sp"></span>';
+    const down = i < filtered.length - 1 ? `<button class="prio-mv" data-ev="intent.down" data-id="${it.id}" aria-label="descer">${icon('down')}</button>` : '<span class="prio-mv sp"></span>';
     return `<div class="prio-item ${it.done ? 'done' : ''} ${pend ? 'wait' : ''}">
       <button class="prio-chk ${it.done ? 'on' : ''}" data-ev="intent.toggle" data-id="${it.id}" aria-label="marcar/desmarcar">${it.done ? icon('check') : ''}</button>
-      <button class="prio-main" data-ev="intent.editnote" data-id="${it.id}" data-text="${escapeHtml(it.text)}" data-note="${escapeHtml(it.note || '')}">
+      <button class="prio-main" data-ev="intent.edit" data-id="${it.id}" data-text="${escapeHtml(it.text)}" data-note="${escapeHtml(it.note || '')}">
         <span class="prio-txt">${escapeHtml(it.text)}</span>${note}
       </button>
+      <div class="prio-mvcol">${up}${down}</div>
     </div>`;
-  }).join('') : `<div class="todo-empty">nada em ${tab} ${icon('check')}</div>`;
+  }).join('') : `<div class="todo-empty">nada em ${tab}</div>`;
+  const addBtn = `<button class="prio-add" data-ev="intent.new">${icon('plus')} nova prioridade</button>`;
   const hist = pr.history || [];
   const histBtn = hist.length ? `<button class="prio-histbtn" data-ev="prio.hist">${_showHist ? 'ocultar histórico' : 'ver histórico'}</button>` : '';
   let histSec = '';
@@ -186,7 +193,7 @@ function prioBody(pr){
       (day.itens || []).map(h => `<div class="prio-histitem">${icon('check')} ${escapeHtml(h.text)}</div>`).join('')
     ).join('') + '</div>';
   }
-  return `<div class="ptabs">${tabs}</div><div class="prio-list">${rows}</div>${histBtn}${histSec}`;
+  return `<div class="ptabs">${tabs}</div><div class="prio-list">${rows}</div>${addBtn}${histBtn}${histSec}`;
 }
 
 function renderCards(snap){
@@ -316,26 +323,39 @@ async function saveCfg(){
   }
 }
 
-/* ---------- editor de nota da prioridade ---------- */
-let _noteId = null;
-function openNote(id, text, note){
-  _noteId = id;
-  $('noteItemText').textContent = text;
-  $('noteText').value = note || '';
-  $('noteModal').hidden = false;
-  setTimeout(() => { try{ $('noteText').focus(); }catch(e){} }, 120);
+/* ---------- editor de prioridade (nova / editar texto+nota / apagar) ---------- */
+let _editId = null;   // null = nova prioridade
+function openEditor(id, text, note){
+  _editId = id || null;
+  $('editTitle').textContent = _editId ? 'Editar prioridade' : 'Nova prioridade';
+  $('editText').value = text || '';
+  $('editNote').value = note || '';
+  $('editDelete').style.display = _editId ? '' : 'none';
+  $('editModal').hidden = false;
+  setTimeout(() => { try{ $('editText').focus(); }catch(e){} }, 120);
 }
-function closeNote(){ $('noteModal').hidden = true; _noteId = null; }
-async function saveNote(){
-  if (_noteId == null) return;
-  const note = $('noteText').value;
-  const b = $('noteSave'); b.disabled = true; b.textContent = 'salvando…';
+function closeEditor(){ $('editModal').hidden = true; _editId = null; }
+async function saveEditor(){
+  const text = $('editText').value.trim(), note = $('editNote').value;
+  if (!text){ flashError('a tarefa não pode ficar vazia'); return; }
+  const b = $('editSave'); b.disabled = true; b.textContent = 'salvando…';
   try{
-    await postEvent({ type:'intent.note', intentId:_noteId, note });
-    closeNote();
+    if (_editId){ await postEvent({ type:'intent.edit', intentId:_editId, text, note }); }
+    else { await postEvent({ type:'intent.add', text, note, itype: (_prioTab === 'pessoal' ? 'pessoal' : 'trabalho') }); }
+    closeEditor();
     [4,9,15,22].forEach(s => setTimeout(refresh, s*1000));   // pega quando o hub aplicar
   }catch(err){ flashError(err.message || 'falha ao salvar'); }
   b.disabled = false; b.textContent = 'Salvar';
+}
+async function deleteIntent(){
+  if (!_editId) return;
+  const b = $('editDelete'); b.disabled = true; b.textContent = 'apagando…';
+  try{
+    await postEvent({ type:'intent.remove', intentId:_editId });
+    closeEditor();
+    [4,9,15,22].forEach(s => setTimeout(refresh, s*1000));
+  }catch(err){ flashError(err.message || 'falha ao apagar'); }
+  b.disabled = false; b.textContent = 'Apagar';
 }
 
 /* ---------- ações (delegado uma vez; renderCards troca o innerHTML a cada poll) ---------- */
@@ -347,7 +367,23 @@ $('cards').addEventListener('click', async (e) => {
   // LOCAL (sem rede): tab de prioridades / mostrar-ocultar histórico / abrir editor de nota
   if (btn.dataset.ptab){ _prioTab = btn.dataset.ptab; localStorage.setItem('companheiro.prioTab', _prioTab); if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'prio.hist'){ _showHist = !_showHist; if (_lastSnap) render(_lastSnap); return; }
-  if (ev === 'intent.editnote'){ openNote(Number(btn.dataset.id), btn.dataset.text || '', btn.dataset.note || ''); return; }
+  if (ev === 'intent.edit'){ openEditor(Number(btn.dataset.id), btn.dataset.text || '', btn.dataset.note || ''); return; }
+  if (ev === 'intent.new'){ openEditor(null, '', ''); return; }
+
+  // REORDENAR (setas ↑↓): calcula o vizinho no view filtrado e manda intent.move {beforeId}.
+  if (ev === 'intent.up' || ev === 'intent.down'){
+    const id = Number(btn.dataset.id);
+    const items = (_lastSnap && _lastSnap.prioridades && _lastSnap.prioridades.itens) || [];
+    const filtered = items.filter(x => _prioTab === 'todos' || (x.type || 'pessoal') === _prioTab);
+    const i = filtered.findIndex(x => x.id === id);
+    if (i < 0) return;
+    let beforeId;
+    if (ev === 'intent.up'){ if (i === 0) return; beforeId = filtered[i-1].id; }
+    else { if (i >= filtered.length-1) return; beforeId = (i+2 < filtered.length) ? filtered[i+2].id : null; }
+    try{ await postEvent({ type:'intent.move', intentId:id, beforeId }); [4,9,15,22].forEach(s=>setTimeout(refresh, s*1000)); }
+    catch(err){ flashError(err.message || 'falha ao mover'); }
+    return;
+  }
 
   // PRIORIDADE toggle (marca/DESMARCA por id): aplica pelo widget quando o hub abre; otimista via _pending.
   if (ev === 'intent.toggle'){
@@ -404,9 +440,10 @@ $('gear').addEventListener('click', openModal);
 $('cfgSave').addEventListener('click', saveCfg);
 $('cfgClear').addEventListener('click', ()=>{ clearCfg(); $('cfgPat').value=''; $('cfgStatus').className='modal-status'; $('cfgStatus').textContent='limpo'; });
 $('modal').addEventListener('click', e=>{ if (e.target === $('modal')) closeModal(); });
-$('noteSave').addEventListener('click', saveNote);
-$('noteCancel').addEventListener('click', closeNote);
-$('noteModal').addEventListener('click', e=>{ if (e.target === $('noteModal')) closeNote(); });
+$('editSave').addEventListener('click', saveEditor);
+$('editCancel').addEventListener('click', closeEditor);
+$('editDelete').addEventListener('click', deleteIntent);
+$('editModal').addEventListener('click', e=>{ if (e.target === $('editModal')) closeEditor(); });
 document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) refresh(); });
 
 if ('serviceWorker' in navigator){
