@@ -123,12 +123,13 @@ body{
 .modal textarea:focus{outline:none;border-color:var(--clay)}
 .note-item-text{font-size:13px;color:var(--ink-soft);margin:2px 0 12px;line-height:1.4;font-weight:600}
 
-/* reordenar (setas ↑↓) + adicionar + apagar */
-.prio-mvcol{display:flex;flex-direction:column;gap:1px;flex:none;margin-top:-1px}
-.prio-mv{width:26px;height:21px;display:grid;place-items:center;background:none;border:none;color:var(--muted);cursor:pointer;padding:0;border-radius:6px}
-.prio-mv:active{background:var(--paper)}
-.prio-mv .ic-svg{width:16px;height:16px}
-.prio-mv.sp{visibility:hidden}
+/* reordenar (arrastar) + adicionar + apagar */
+.prio-drag{flex:none;align-self:stretch;display:grid;place-items:center;width:34px;margin:-10px -12px -10px 0;
+  color:var(--muted);cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
+.prio-drag:active{cursor:grabbing}
+.prio-drag .ic-svg{width:18px;height:18px}
+.prio-item{transition:opacity .15s, box-shadow .15s, border-color .15s}
+.prio-item.dragging{opacity:.95;background:var(--paper);border-color:var(--clay);box-shadow:0 8px 20px rgba(0,0,0,.55);position:relative;z-index:3}
 .prio-add{width:100%;margin-top:12px;padding:11px;border-radius:11px;border:1px dashed var(--line);
   background:none;color:var(--ink-soft);font-size:13px;font-family:inherit;font-weight:600;cursor:pointer;
   display:flex;align-items:center;justify-content:center;gap:6px}

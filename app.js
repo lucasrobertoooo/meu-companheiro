@@ -31,6 +31,7 @@ const ICONS = {
   up:          _svg('<path d="M18 15l-6-6-6 6"/>'),
   down:        _svg('<path d="M6 9l6 6 6-6"/>'),
   plus:        _svg('<path d="M12 5v14M5 12h14"/>'),
+  grip:        _svg('<circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/>'),
 };
 const icon = n => ICONS[n] || '';
 
@@ -163,24 +164,70 @@ function skinBtn(routine, slot){
   return `<button class="mark-btn half ${cls}" data-ev="skincare.${routine}" data-done="${done?1:0}" ${pend?'disabled':''}>${lbl}</button>`;
 }
 
-// corpo do card de Prioridades: tabs (filtro local) + itens (toggle/nota) + histórico. PRIORIDADES-EDIT-F.A.
+/* ---------- prioridades: UI otimista + drag-and-drop ---------- */
+let _dragging = false;
+// aplica a mudança JÁ no snapshot local + repinta (feedback instantâneo); o Mac reconcilia depois.
+function optimisticPrio(fn){
+  if (_lastSnap && _lastSnap.prioridades && Array.isArray(_lastSnap.prioridades.itens)){
+    fn(_lastSnap.prioridades); render(_lastSnap);
+  }
+}
+function schedulePrioRefresh(){ [3, 8, 15, 25].forEach(s => setTimeout(refresh, s * 1000)); }
+
+let _drag = null;
+function prioDragStart(e){
+  const handle = e.target.closest('.prio-drag'); if (!handle) return;
+  const item = handle.closest('.prio-item'); if (!item) return;
+  e.preventDefault();
+  _dragging = true;
+  _drag = { item, list: item.parentElement, id: Number(item.dataset.id), moved: false };
+  item.classList.add('dragging');
+  try{ handle.setPointerCapture(e.pointerId); }catch(err){}
+}
+function prioDragMove(e){
+  if (!_drag) return;
+  e.preventDefault();
+  const { item, list } = _drag, y = e.clientY;
+  const sibs = [...list.querySelectorAll('.prio-item:not(.dragging)')];
+  let ref = null;
+  for (const s of sibs){ const r = s.getBoundingClientRect(); if (y < r.top + r.height / 2){ ref = s; break; } }
+  if (ref){ if (item.nextSibling !== ref){ list.insertBefore(item, ref); _drag.moved = true; } }
+  else if (list.lastElementChild !== item){ list.appendChild(item); _drag.moved = true; }
+}
+function prioDragEnd(){
+  if (!_drag) return;
+  const { item, list, id, moved } = _drag;
+  item.classList.remove('dragging');
+  _drag = null;
+  setTimeout(() => { _dragging = false; }, 60);
+  if (!moved) return;
+  const dom = [...list.querySelectorAll('.prio-item')];
+  const idx = dom.findIndex(x => Number(x.dataset.id) === id);
+  const beforeEl = dom[idx + 1];
+  const beforeId = beforeEl ? Number(beforeEl.dataset.id) : null;
+  // reordena o snapshot local (o DOM já está na ordem certa → não re-renderiza pra não piscar)
+  if (_lastSnap && _lastSnap.prioridades){
+    const arr = _lastSnap.prioridades.itens, from = arr.findIndex(i => i.id === id);
+    if (from >= 0){ const [it] = arr.splice(from, 1); let to = arr.length; if (beforeId){ const b = arr.findIndex(i => i.id === beforeId); if (b >= 0) to = b; } arr.splice(to, 0, it); }
+  }
+  postEvent({ type:'intent.move', intentId:id, beforeId }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao mover'); refresh(); });
+}
+
+// corpo do card de Prioridades: tabs (filtro local) + itens (toggle/nota/arrastar) + histórico. PRIORIDADES-EDIT-F.A.
 function prioBody(pr){
   const items = pr.itens || [];
   const tab = _prioTab;
   const filtered = items.filter(i => tab === 'todos' || (i.type || 'pessoal') === tab);
   const tabs = ['trabalho', 'pessoal', 'todos']
     .map(t => `<button class="ptab ${t === tab ? 'on' : ''}" data-ptab="${t}">${t}</button>`).join('');
-  const rows = filtered.length ? filtered.map((it, i) => {
-    const pend = pendingFor('intent:' + it.id, it.done);
+  const rows = filtered.length ? filtered.map(it => {
     const note = it.note ? `<div class="prio-note">${escapeHtml(it.note)}</div>` : '';
-    const up = i > 0 ? `<button class="prio-mv" data-ev="intent.up" data-id="${it.id}" aria-label="subir">${icon('up')}</button>` : '<span class="prio-mv sp"></span>';
-    const down = i < filtered.length - 1 ? `<button class="prio-mv" data-ev="intent.down" data-id="${it.id}" aria-label="descer">${icon('down')}</button>` : '<span class="prio-mv sp"></span>';
-    return `<div class="prio-item ${it.done ? 'done' : ''} ${pend ? 'wait' : ''}">
+    return `<div class="prio-item ${it.done ? 'done' : ''}" data-id="${it.id}">
       <button class="prio-chk ${it.done ? 'on' : ''}" data-ev="intent.toggle" data-id="${it.id}" aria-label="marcar/desmarcar">${it.done ? icon('check') : ''}</button>
       <button class="prio-main" data-ev="intent.edit" data-id="${it.id}" data-text="${escapeHtml(it.text)}" data-note="${escapeHtml(it.note || '')}">
         <span class="prio-txt">${escapeHtml(it.text)}</span>${note}
       </button>
-      <div class="prio-mvcol">${up}${down}</div>
+      <div class="prio-drag" aria-label="arrastar pra reordenar">${icon('grip')}</div>
     </div>`;
   }).join('') : `<div class="todo-empty">nada em ${tab}</div>`;
   const addBtn = `<button class="prio-add" data-ev="intent.new">${icon('plus')} nova prioridade</button>`;
@@ -282,6 +329,7 @@ function render(snap){
 let _timer = null, _lastRendered = null;
 function stripTs(snap){ const c = { ...snap }; delete c.ts; return JSON.stringify(c); }
 async function refresh(){
+  if (_dragging) return;                 // não repinta no meio de um arraste
   try{
     const snap = await fetchSnapshot();
     const key = stripTs(snap);          // dedup sem o ts (igual ao Mac) → não repinta/pisca à toa
@@ -344,66 +392,45 @@ function openEditor(id, text, note){
   setTimeout(() => { try{ $('editText').focus(); }catch(e){} }, 120);
 }
 function closeEditor(){ $('editModal').hidden = true; _editId = null; }
-async function saveEditor(){
-  const text = $('editText').value.trim(), note = $('editNote').value;
+function saveEditor(){
+  const text = $('editText').value.trim(), note = $('editNote').value.trim();
   if (!text){ flashError('a tarefa não pode ficar vazia'); return; }
-  const b = $('editSave'); b.disabled = true; b.textContent = 'salvando…';
-  try{
-    if (_editId){ await postEvent({ type:'intent.edit', intentId:_editId, text, note }); }
-    else { await postEvent({ type:'intent.add', text, note, itype: (_prioTab === 'pessoal' ? 'pessoal' : 'trabalho') }); }
-    closeEditor();
-    [4,9,15,22].forEach(s => setTimeout(refresh, s*1000));   // pega quando o hub aplicar
-  }catch(err){ flashError(err.message || 'falha ao salvar'); }
-  b.disabled = false; b.textContent = 'Salvar';
+  const id = _editId, itype = (_prioTab === 'pessoal' ? 'pessoal' : 'trabalho');
+  closeEditor();
+  if (id){   // editar (OTIMISTA — muda na hora)
+    optimisticPrio(pr => { const it = pr.itens.find(i => i.id === id); if (it){ it.text = text; it.note = note || undefined; } });
+    postEvent({ type:'intent.edit', intentId:id, text, note }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao salvar'); refresh(); });
+  } else {   // adicionar (OTIMISTA — item temp até o Mac atribuir o ts real; é substituído no próximo snapshot)
+    optimisticPrio(pr => { pr.itens.push({ id: 'tmp' + Date.now(), text, done:false, note: note || undefined, type: itype }); });
+    postEvent({ type:'intent.add', text, note, itype }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao adicionar'); refresh(); });
+  }
 }
-async function deleteIntent(){
+function deleteIntent(){
   if (!_editId) return;
-  const b = $('editDelete'); b.disabled = true; b.textContent = 'apagando…';
-  try{
-    await postEvent({ type:'intent.remove', intentId:_editId });
-    closeEditor();
-    [4,9,15,22].forEach(s => setTimeout(refresh, s*1000));
-  }catch(err){ flashError(err.message || 'falha ao apagar'); }
-  b.disabled = false; b.textContent = 'Apagar';
+  const id = _editId;
+  closeEditor();
+  optimisticPrio(pr => { pr.itens = pr.itens.filter(i => i.id !== id); });
+  postEvent({ type:'intent.remove', intentId:id }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao apagar'); refresh(); });
 }
 
 /* ---------- ações (delegado uma vez; renderCards troca o innerHTML a cada poll) ---------- */
 $('cards').addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-ev]');
+  const btn = e.target.closest('[data-ev],[data-ptab]');
   if (!btn || btn.disabled) return;
   const ev = btn.dataset.ev, label = btn.textContent;
 
-  // LOCAL (sem rede): tab de prioridades / mostrar-ocultar histórico / abrir editor de nota
+  // LOCAL (sem rede): tab de prioridades / mostrar-ocultar histórico / abrir editor
   if (btn.dataset.ptab){ _prioTab = btn.dataset.ptab; localStorage.setItem('companheiro.prioTab', _prioTab); if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'prio.hist'){ _showHist = !_showHist; if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'intent.edit'){ openEditor(Number(btn.dataset.id), btn.dataset.text || '', btn.dataset.note || ''); return; }
   if (ev === 'intent.new'){ openEditor(null, '', ''); return; }
 
-  // REORDENAR (setas ↑↓): calcula o vizinho no view filtrado e manda intent.move {beforeId}.
-  if (ev === 'intent.up' || ev === 'intent.down'){
-    const id = Number(btn.dataset.id);
-    const items = (_lastSnap && _lastSnap.prioridades && _lastSnap.prioridades.itens) || [];
-    const filtered = items.filter(x => _prioTab === 'todos' || (x.type || 'pessoal') === _prioTab);
-    const i = filtered.findIndex(x => x.id === id);
-    if (i < 0) return;
-    let beforeId;
-    if (ev === 'intent.up'){ if (i === 0) return; beforeId = filtered[i-1].id; }
-    else { if (i >= filtered.length-1) return; beforeId = (i+2 < filtered.length) ? filtered[i+2].id : null; }
-    try{ await postEvent({ type:'intent.move', intentId:id, beforeId }); [4,9,15,22].forEach(s=>setTimeout(refresh, s*1000)); }
-    catch(err){ flashError(err.message || 'falha ao mover'); }
-    return;
-  }
-
-  // PRIORIDADE toggle (marca/DESMARCA por id): aplica pelo widget quando o hub abre; otimista via _pending.
+  // PRIORIDADE toggle — OTIMISTA: muda na HORA no celular; o Mac reconcilia em 2º plano.
   if (ev === 'intent.toggle'){
     const id = Number(btn.dataset.id);
-    if (('intent:' + id) in _pending) return;                 // já em voo → ignora re-tap
-    const item = ((_lastSnap && _lastSnap.prioridades && _lastSnap.prioridades.itens) || []).find(i => i.id === id);
-    const target = item ? !item.done : true;
-    _pending['intent:' + id] = target;
-    if (_lastSnap) render(_lastSnap);                          // repinta otimista (item entra em 'wait')
-    try{ await postEvent({ type:'intent.toggle', intentId:id }); [4,9,15,22,32].forEach(s=>setTimeout(refresh, s*1000)); }
-    catch(err){ delete _pending['intent:'+id]; if(_lastSnap) render(_lastSnap); flashError(err.message || 'falha ao enviar'); }
+    optimisticPrio(pr => { const it = pr.itens.find(i => i.id === id); if (it) it.done = !it.done; });
+    try{ await postEvent({ type:'intent.toggle', intentId:id }); schedulePrioRefresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
     return;
   }
 
@@ -456,6 +483,11 @@ $('editSave').addEventListener('click', saveEditor);
 $('editCancel').addEventListener('click', closeEditor);
 $('editDelete').addEventListener('click', deleteIntent);
 $('editModal').addEventListener('click', e=>{ if (e.target === $('editModal')) closeEditor(); });
+// drag-and-drop de prioridades (pointer/touch)
+$('cards').addEventListener('pointerdown', prioDragStart);
+document.addEventListener('pointermove', prioDragMove);
+document.addEventListener('pointerup', prioDragEnd);
+document.addEventListener('pointercancel', prioDragEnd);
 document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) refresh(); });
 
 if ('serviceWorker' in navigator){
