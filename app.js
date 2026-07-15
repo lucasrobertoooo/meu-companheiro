@@ -6,6 +6,7 @@ const $ = id => document.getElementById(id);
 const CFG_KEY = 'companheiro.sync.cfg';
 const SNAP_CACHE = 'companheiro.sync.lastSnap';
 const POLL_MS = 25000;
+let _pendingPm = false;   // otimista: "enviei o marcar-noite, aguardando o Mac confirmar no snapshot"
 
 const AURA = { normal:'rgba(138,92,240,.42)', prata:'rgba(184,184,196,.44)', ouro:'rgba(232,192,90,.52)' };
 const TODAY_MODULES = [
@@ -142,14 +143,15 @@ function renderCards(snap){
   if (snap.skincare){
     const s = snap.skincare, am = s.am||{}, pm = s.pm||{};
     const pmDone = !!pm.complete;
+    if (pmDone) _pendingPm = false;               // snapshot confirmou → limpa o otimismo
+    const pending = _pendingPm && !pmDone;
+    const btnLabel = pmDone ? 'noite feita ✓' : (pending ? 'enviado ✓ · atualizando…' : 'marcar rotina da noite');
     parts.push(card('Skincare', '🧴', s.streak!=null?`🔥 ${s.streak}d`:'', `
       <div class="skin-row">
         <div class="skin-slot ${am.complete?'full':''}"><div class="s-lbl">Manhã</div><div class="s-val">${am.done||0}/${am.total||0}</div></div>
         <div class="skin-slot ${pmDone?'full':''}"><div class="s-lbl">Noite</div><div class="s-val">${pm.done||0}/${pm.total||0}</div></div>
       </div>
-      <button class="mark-btn ${pmDone?'done':''}" data-ev="skincare.pm" ${pmDone?'disabled':''}>
-        ${pmDone?'noite feita ✓':'marcar rotina da noite'}
-      </button>`));
+      <button class="mark-btn ${(pmDone||pending)?'done':''}" data-ev="skincare.pm" ${(pmDone||pending)?'disabled':''}>${btnLabel}</button>`));
   }
 
   $('cards').innerHTML = parts.join('');
@@ -236,9 +238,10 @@ $('cards').addEventListener('click', async (e) => {
     btn.disabled = true; btn.textContent = 'enviando…';
     try{
       await postEvent({ type: 'skincare.done', routine: 'pm' });
-      btn.textContent = 'enviado ✓ · atualizando';
-      _lastRendered = null;                 // força repintar quando o snapshot novo chegar
-      setTimeout(refresh, 3000);            // dá tempo do Mac puxar+aplicar+publicar
+      _pendingPm = true;                    // otimista até o snapshot confirmar (sobrevive aos re-renders)
+      btn.textContent = 'enviado ✓ · atualizando…';
+      // o Mac processa no tick (~30s) e publica novo snapshot → estes polls pegam a confirmação
+      [8, 20, 35, 50].forEach(sec => setTimeout(refresh, sec * 1000));
     }catch(err){
       btn.disabled = false; btn.textContent = label;
       flashError(err.message || 'falha ao enviar');
