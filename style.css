@@ -267,3 +267,23 @@ body.needcfg .onboard{display:block}
 .modal select:focus{outline:none;border-color:var(--clay)}
 .chk-line{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-soft)}
 .chk-line input{width:auto;margin:0}
+
+/* ---------- Financeiro: home enxuta + tela cheia (FIN-MOBILE-FULL-2026-07-15) ---------- */
+.fin-sum4{flex-wrap:wrap}
+.fin-sum4 .fin-stat{flex:1 1 calc(50% - 4px);min-width:calc(50% - 4px)}
+.fin-open{margin-top:12px}
+.finfull{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;overflow:hidden}
+.finfull[hidden]{display:none}
+.finfull-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;
+  border-bottom:1px solid var(--line);background:var(--paper-2);position:sticky;top:0}
+.finfull-close{background:none;border:none;color:var(--clay);font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;padding:4px 0}
+.finfull-nav{display:flex;align-items:center;gap:12px}
+.finfull-navbtn{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--paper);
+  color:var(--ink);font-size:18px;line-height:1;cursor:pointer}
+.finfull-navbtn:active{background:var(--paper-2)}
+.finfull-month{font-size:15px;font-weight:700;min-width:96px;text-align:center}
+.finfull-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 16px calc(28px + env(safe-area-inset-bottom))}
+.finfull-body .fin-cats{margin-top:14px}
+.fin-rollover{margin-top:18px;text-align:center}
+.fin-empty{font-size:13px;color:var(--muted);margin-bottom:14px}
+.fin-rollover .fin-add{max-width:none}

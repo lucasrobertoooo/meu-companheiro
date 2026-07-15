@@ -94,6 +94,19 @@
     </div>
   </div>
 
+  <!-- Financeiro TELA CHEIA (navegação de meses + categorias + linhas) -->
+  <div id="finFull" class="finfull" hidden>
+    <header class="finfull-bar">
+      <button id="finFullClose" class="finfull-close" aria-label="voltar">‹ voltar</button>
+      <div class="finfull-nav">
+        <button id="finPrev" class="finfull-navbtn" aria-label="mês anterior">‹</button>
+        <span id="finMonthLbl" class="finfull-month">—</span>
+        <button id="finNext" class="finfull-navbtn" aria-label="próximo mês">›</button>
+      </div>
+    </header>
+    <div id="finFullBody" class="finfull-body"></div>
+  </div>
+
   <!-- Editor de linha do financeiro (nova / editar / apagar) -->
   <div class="modal-backdrop" id="finModal" hidden>
     <div class="modal">

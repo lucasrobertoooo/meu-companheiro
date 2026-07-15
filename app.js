@@ -274,47 +274,58 @@ function prioBody(pr){
   return `<div class="ptabs">${tabs}</div><div class="prio-list">${rows}</div>${addBtn}${histBtn}${histSec}`;
 }
 
-/* ---------- financeiro: card LOCAL editável (resumo + categorias expansíveis + linhas). FIN-LOCAL-2026-07-15 ---------- */
+/* ---------- financeiro: home enxuta + TELA CHEIA (navegação de meses, categorias, edição). FIN-MOBILE-FULL-2026-07-15 ---------- */
 const FIN_CATS = ['Tenho', 'Receber', 'Fixo', 'Variável', 'Cartão', 'Investir'];
 const FIN_STATUS = ['Previsto', 'Pago', 'Atrasado', 'Cancelado'];
 const _MES_ABBR = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 let _finOpen = {};
 try{ _finOpen = JSON.parse(localStorage.getItem('companheiro.finOpen')) || {}; }catch{ _finOpen = {}; }
 function saveFinOpen(){ localStorage.setItem('companheiro.finOpen', JSON.stringify(_finOpen)); }
+let _finMonth = null;   // mês em foco na tela cheia (null = mês corrente do snapshot)
 function fmtBRL(v){ return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
 function fmtMes(mes){ const p = String(mes||'').split('-'); return (_MES_ABBR[(+p[1])-1] || p[1] || '') + '/' + (p[0]||''); }
+function monthShift(mes, d){ let [y,m] = String(mes).split('-').map(Number); m += d; while(m>12){m-=12;y++;} while(m<1){m+=12;y--;} return y + '-' + String(m).padStart(2,'0'); }
+function rowsOfMonth(rows, mes){ return (rows||[]).filter(r => r.mes === mes); }
 // pt-BR: ponto = milhar, vírgula = decimal ("1.234,56" → 1234.56)
 function parseValBR(s){
   s = String(s).trim().replace(/[^\d.,-]/g, '');
   if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
   const n = parseFloat(s); return isNaN(n) ? 0 : n;
 }
-// recomputa o resumo IGUAL ao Mac (summarize) → o otimista bate na hora sem esperar o snapshot
-function recomputeFin(fin){
-  const rows = fin.rows || [];
+// resumo de um conjunto de linhas — MESMA lógica do Mac (summarize). Retorna {tenho,receber,previsto,investir,sobra,livres}
+function summaryOf(rows){
   let tenho = 0, livres = null;
   const pend = { Receber:0, Fixo:0, 'Variável':0, 'Cartão':0, Investir:0 };
-  for (const r of rows){
+  for (const r of (rows||[])){
     if (r.cat === 'Tenho') tenho += r.valor || 0;
     else if (r.status === 'Pago'){ /* realizado — fora do pendente */ }
     else if (r.status !== 'Cancelado' && (r.cat in pend)) pend[r.cat] += r.valor || 0;
     if (r.cat === 'Variável' && String(r.label||'').toLowerCase().includes('livre')) livres = (livres||0) + (r.valor||0);
   }
   const previsto = pend.Fixo + pend['Variável'] + pend['Cartão'];
-  fin.summary = { tenho, receber: pend.Receber, previsto, investir: pend.Investir,
-                  sobra: tenho + pend.Receber - previsto - pend.Investir, livres };
+  return { tenho, receber: pend.Receber, previsto, investir: pend.Investir,
+           sobra: tenho + pend.Receber - previsto - pend.Investir, livres };
 }
+// otimista: muda o snapshot local + repinta a home E a tela cheia (se aberta); o Mac reconcilia depois
 function optimisticFin(fn){
   if (_lastSnap && _lastSnap.financeiro && Array.isArray(_lastSnap.financeiro.rows)){
-    fn(_lastSnap.financeiro); recomputeFin(_lastSnap.financeiro); render(_lastSnap);
+    fn(_lastSnap.financeiro); render(_lastSnap);
   }
 }
-function finBody(fin){
-  const rows = fin.rows || [], sm = fin.summary || {};
+
+// bloco de resumo (4 números principais) — usado na home e no topo da tela cheia
+function finSumHtml(sm){
   const stat = (lbl, v, extra='') => `<div class="fin-stat ${extra}"><small>${lbl}</small><b>${fmtBRL(v)}</b></div>`;
   const sobraCls = (sm.sobra||0) < 0 ? 'neg' : 'pos';
-  let head = `<div class="fin-sum">${stat('tenho', sm.tenho||0)}${stat('a receber', sm.receber||0)}${stat('sobra', sm.sobra||0, 'sobra '+sobraCls)}</div>`;
-  if (sm.livres != null) head += `<div class="fin-livres">gastos livres <b>${fmtBRL(sm.livres)}</b></div>`;
+  return `<div class="fin-sum fin-sum4">${stat('tenho', sm.tenho||0)}${stat('a receber', sm.receber||0)}${stat('sobra', sm.sobra||0, 'sobra '+sobraCls)}${stat('gastos livres', sm.livres||0)}</div>`;
+}
+// HOME: só o resumo do mês corrente + botão "ver completo"
+function finHomeBody(fin){
+  const rows = rowsOfMonth(fin.rows, fin.mes);
+  return finSumHtml(summaryOf(rows)) + `<button class="mark-btn fin-open" data-ev="fin.full">ver completo</button>`;
+}
+// categorias + linhas de um mês (usado na tela cheia)
+function finCatsHtml(rows){
   const cats = FIN_CATS.map(cat => {
     const crows = rows.filter(r => r.cat === cat);
     const sub = crows.reduce((a, r) => a + (r.valor||0), 0);
@@ -339,7 +350,35 @@ function finBody(fin){
     }).join('') : `<div class="todo-empty">sem linhas</div>`;
     return `<div class="fin-cat">${h}<div class="fin-rows">${list}<button class="fin-add" data-ev="fin.new" data-cat="${cat}">${icon('plus')} nova linha</button></div></div>`;
   }).join('');
-  return head + `<div class="fin-cats">${cats}</div>`;
+  return `<div class="fin-cats">${cats}</div>`;
+}
+
+/* ---------- financeiro TELA CHEIA (overlay #finFull) ---------- */
+function openFinFull(){
+  const fin = _lastSnap && _lastSnap.financeiro; if (!fin) return;
+  _finMonth = _finMonth || fin.mes;
+  renderFinFull();
+  $('finFull').hidden = false;
+  document.body.classList.add('finfull-on');
+}
+function closeFinFull(){ $('finFull').hidden = true; document.body.classList.remove('finfull-on'); }
+function finShiftMonth(d){ const fin = _lastSnap && _lastSnap.financeiro; if (!fin) return; _finMonth = monthShift(_finMonth || fin.mes, d); renderFinFull(); }
+function renderFinFull(){
+  const fin = _lastSnap && _lastSnap.financeiro; if (!fin) return;
+  const mes = _finMonth || fin.mes;
+  $('finMonthLbl').textContent = fmtMes(mes) + (mes === fin.mes ? ' · atual' : '');
+  const rows = rowsOfMonth(fin.rows, mes);
+  let body = finSumHtml(summaryOf(rows));
+  if (rows.length === 0){
+    const prev = monthShift(mes, -1), prevN = rowsOfMonth(fin.rows, prev).length;
+    body += `<div class="fin-rollover"><p class="fin-empty">Nenhuma linha em ${fmtMes(mes)}.</p>` +
+      (prevN ? `<button class="mark-btn" data-ev="fin.rollover" data-mes="${mes}">copiar estrutura de ${fmtMes(prev)} (${prevN} linhas)</button>`
+             : `<button class="fin-add" data-ev="fin.new" data-cat="Fixo">${icon('plus')} adicionar a primeira linha</button>`) +
+      `</div>`;
+  } else {
+    body += finCatsHtml(rows);
+  }
+  $('finFullBody').innerHTML = body;
 }
 
 function renderCards(snap){
@@ -357,9 +396,9 @@ function renderCards(snap){
       <button class="mark-btn" data-ev="agua.bottle">+1 garrafa (${w.bottleMl||700} ml)</button>`));
   }
 
-  // FINANCEIRO — módulo LOCAL editável (resumo + categorias + linhas). FIN-LOCAL-2026-07-15.
+  // FINANCEIRO — home ENXUTA (só resumo + "ver completo"); o detalhe vive na tela cheia. FIN-MOBILE-FULL.
   if (snap.financeiro){
-    parts.push(card('Financeiro', icon('financeiro'), fmtMes(snap.financeiro.mes), finBody(snap.financeiro)));
+    parts.push(card('Financeiro', icon('financeiro'), fmtMes(snap.financeiro.mes), finHomeBody(snap.financeiro)));
   }
 
   // PRIORIDADES — lista editável (tabs, notas, histórico, marcar/desmarcar). PRIORIDADES-EDIT-F.A.
@@ -423,6 +462,7 @@ function render(snap){
   renderHero(snap.creature || {});
   renderToday(snap);
   renderCards(snap);
+  if (!$('finFull').hidden) renderFinFull();   // mantém a tela cheia do financeiro em sincronia
 }
 
 /* ---------- loop ---------- */
@@ -580,8 +620,8 @@ function deleteFinRow(){
   postEvent({ type:'fin.delete', id }).then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao apagar'); refresh(); });
 }
 
-/* ---------- ações (delegado uma vez; renderCards troca o innerHTML a cada poll) ---------- */
-$('cards').addEventListener('click', async (e) => {
+/* ---------- ações (delegado; usado na home #cards E na tela cheia #finFull) ---------- */
+const onCardClick = async (e) => {
   const btn = e.target.closest('[data-ev],[data-ptab]');
   if (!btn || btn.disabled) return;
   const ev = btn.dataset.ev, label = btn.textContent;
@@ -612,8 +652,9 @@ $('cards').addEventListener('click', async (e) => {
     return;
   }
 
-  // FINANCEIRO (local, aplica direto — funciona com o hub fechado): expandir cat, ciclar status, editar, nova
-  if (ev === 'fin.cat'){ const c = btn.dataset.cat; _finOpen[c] = !_finOpen[c]; saveFinOpen(); if (_lastSnap) render(_lastSnap); return; }
+  // FINANCEIRO (local, aplica direto — funciona com o hub fechado)
+  if (ev === 'fin.full'){ openFinFull(); return; }                                    // abre a tela cheia
+  if (ev === 'fin.cat'){ const c = btn.dataset.cat; _finOpen[c] = !_finOpen[c]; saveFinOpen(); if (!$('finFull').hidden) renderFinFull(); else if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'fin.edit'){ openFinEditor(btn.dataset.id); return; }
   if (ev === 'fin.new'){ openFinEditor(null, btn.dataset.cat); return; }
   if (ev === 'fin.status'){
@@ -622,6 +663,13 @@ $('cards').addEventListener('click', async (e) => {
     optimisticFin(fin => { const r = (fin.rows||[]).find(x => String(x.id) === String(id)); if (r) r.status = next; });
     try{ await postEvent({ type:'fin.edit', id, status: next }); schedulePrioRefresh(); }
     catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    return;
+  }
+  if (ev === 'fin.rollover'){
+    const mes = btn.dataset.mes;
+    btn.disabled = true; btn.textContent = 'criando…';
+    try{ await postEvent({ type:'fin.rollover', mes }); [4, 9, 15, 22, 32].forEach(s => setTimeout(refresh, s*1000)); }
+    catch(err){ btn.disabled = false; flashError(err.message || 'falha ao criar'); }
     return;
   }
 
@@ -663,7 +711,9 @@ $('cards').addEventListener('click', async (e) => {
     btn.disabled = false; btn.textContent = label;
     flashError(err.message || 'falha ao enviar');
   }
-});
+};
+$('cards').addEventListener('click', onCardClick);
+$('finFull').addEventListener('click', onCardClick);
 
 /* ---------- boot ---------- */
 $('gear').addEventListener('click', openModal);
@@ -680,6 +730,9 @@ $('finSave').addEventListener('click', saveFinEditor);
 $('finCancel').addEventListener('click', closeFinEditor);
 $('finDelete').addEventListener('click', deleteFinRow);
 $('finModal').addEventListener('click', e=>{ if (e.target === $('finModal')) closeFinEditor(); });
+$('finFullClose').addEventListener('click', closeFinFull);
+$('finPrev').addEventListener('click', ()=> finShiftMonth(-1));
+$('finNext').addEventListener('click', ()=> finShiftMonth(1));
 // drag-and-drop de prioridades (pointer/touch)
 $('cards').addEventListener('pointerdown', prioDragStart);
 document.addEventListener('pointermove', prioDragMove);
