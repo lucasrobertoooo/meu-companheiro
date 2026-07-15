@@ -236,6 +236,15 @@ function renderCards(snap){
       `<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="meditacao" data-done="${done?1:0}" ${(pend||done)?'disabled':''}>${lbl}</button>`));
   }
 
+  // MOBILIDADE (check-in de treino — toggle marcar⇄desfazer; aplica direto, funciona hub fechado)
+  if (snap.doneToday){
+    const done = !!snap.doneToday.mobilidade, pend = pendingFor('mobilidade', done);
+    const lbl = pend ? 'enviando… atualizando' : (done ? 'treino feito hoje ✓' : 'marcar treino de mobilidade');
+    // só marcar (como a meditação): desfazer mobilidade é ambíguo (o MobiApp é a fonte real do treino)
+    parts.push(card('Mobilidade', icon('mobilidade'), '',
+      `<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="mobilidade" data-done="${done?1:0}" ${(pend||done)?'disabled':''}>${lbl}</button>`));
+  }
+
   // LEITURA (lista os livros em andamento — toca no que leu; só marcar)
   if (snap.leitura && Array.isArray(snap.leitura.books) && snap.leitura.books.length){
     const rows = snap.leitura.books.map(b => {
@@ -421,6 +430,9 @@ $('cards').addEventListener('click', async (e) => {
     if (btn.dataset.done === '1') return;
     const bookId = btn.dataset.book;
     target = true; key = 'leitura:' + bookId; evt = { type: 'leitura.read', bookId };
+  } else if (ev === 'mobilidade'){                            // toggle (marca/desmarca)
+    target = btn.dataset.done !== '1';
+    key = 'mobilidade'; evt = { type: 'mobilidade.checkin', done: target };
   } else return;
 
   btn.disabled = true; btn.textContent = target ? 'enviando…' : 'desfazendo…';
