@@ -1,6 +1,7 @@
 // Companheiro mobile — espelho READ-ONLY do snapshot.json (schema v1).
 // Fonte: repo privado via GitHub Contents API (PAT no aparelho) OU ./snapshot.json (dev local).
 import { CREATURE_ART } from './creature-art.js';
+import { SKIN_LIB } from './skincare-catalog.js';
 
 const $ = id => document.getElementById(id);
 const CFG_KEY = 'companheiro.sync.cfg';
@@ -10,6 +11,7 @@ let _pending = {};        // otimista: mapa key→alvo(bool) aguardando o Mac co
 let _prioTab = localStorage.getItem('companheiro.prioTab') || 'todos';   // filtro local (não sincroniza)
 let _showHist = false;    // histórico de prioridades expandido?
 let _lastSnap = null;     // último snapshot (pra re-render local ao trocar tab/histórico)
+let _skinOpen = { am: false, pm: false };   // rotinas de skincare expandidas (mostrar passos)?
 
 const AURA = { normal:'rgba(138,92,240,.42)', prata:'rgba(184,184,196,.44)', ouro:'rgba(232,192,90,.52)' };
 
@@ -32,6 +34,7 @@ const ICONS = {
   down:        _svg('<path d="M6 9l6 6 6-6"/>'),
   plus:        _svg('<path d="M12 5v14M5 12h14"/>'),
   grip:        _svg('<circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/>'),
+  info:        _svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5h.01"/>'),
 };
 const icon = n => ICONS[n] || '';
 
@@ -155,13 +158,40 @@ function pendingFor(key, done){
   if (key in _pending && _pending[key] === done) delete _pending[key];
   return key in _pending;
 }
-// botão de rotina do skincare (toggle marcar⇄desfazer)
+// botão "marcar tudo / limpar" de uma rotina do skincare (toggle da rotina inteira)
 function skinBtn(routine, slot){
   const done = !!slot.complete, key = 'skincare.' + routine, pend = pendingFor(key, done);
-  const rl = routine === 'am' ? 'manhã' : 'noite';
-  const lbl = pend ? '…' : (done ? `${rl} ✓` : `marcar ${rl}`);
-  const cls = pend ? 'wait' : (done ? 'done' : '');
-  return `<button class="mark-btn half ${cls}" data-ev="skincare.${routine}" data-done="${done?1:0}" ${pend?'disabled':''}>${lbl}</button>`;
+  const lbl = pend ? '…' : (done ? 'limpar tudo' : 'marcar tudo');
+  const cls = pend ? 'wait' : '';
+  return `<button class="mark-btn skin-all ${cls}" data-ev="skincare.${routine}" data-done="${done?1:0}" ${pend?'disabled':''}>${lbl}</button>`;
+}
+
+// rotina de skincare expansível: cabeçalho (N/M) + passos (marcar item a item) + "marcar tudo". F-SKINSTEP.
+function skinRoutine(rt, slot, label){
+  const steps = slot.steps || [], open = _skinOpen[rt];
+  const head = `<button class="skin-rthead ${slot.complete ? 'full' : ''}" data-ev="skin.open" data-rt="${rt}">
+    <span class="skin-rtname">${label}</span><span class="skin-rtcount">${slot.done || 0}/${slot.total || 0}</span>
+    <span class="skin-rtchev">${icon(open ? 'up' : 'down')}</span></button>`;
+  if (!open) return `<div class="skin-rt">${head}</div>`;
+  const rows = steps.length ? steps.map(st => {
+    const sub = (SKIN_LIB[st.type] || {}).name || '';
+    return `<div class="skin-step ${st.done ? 'done' : ''}">
+      <button class="prio-chk ${st.done ? 'on' : ''}" data-ev="skincare.step" data-rt="${rt}" data-title="${escapeHtml(st.title)}" data-done="${st.done ? 1 : 0}" aria-label="marcar passo">${st.done ? icon('check') : ''}</button>
+      <button class="skin-stepmain" data-ev="skin.info" data-type="${escapeHtml(st.type || '')}" data-title="${escapeHtml(st.title)}">
+        <span class="skin-steptitle">${escapeHtml(st.title)}</span>${sub ? `<span class="skin-stepsub">${escapeHtml(sub)}</span>` : ''}<span class="skin-stepinfo">${icon('info')}</span>
+      </button>
+    </div>`;
+  }).join('') : `<div class="todo-empty">sem passos habilitados</div>`;
+  return `<div class="skin-rt">${head}<div class="skin-steps">${rows}${skinBtn(rt, slot)}</div></div>`;
+}
+// otimista: alterna o passo no snapshot local + recomputa a contagem da rotina
+function optimisticSkinStep(rt, title){
+  const slot = _lastSnap && _lastSnap.skincare && _lastSnap.skincare[rt]; if (!slot || !Array.isArray(slot.steps)) return;
+  const st = slot.steps.find(x => x.title === title); if (!st) return;
+  st.done = !st.done;
+  slot.done = slot.steps.filter(x => x.done).length;
+  slot.complete = slot.total > 0 && slot.done >= slot.total;
+  render(_lastSnap);
 }
 
 /* ---------- prioridades: UI otimista + drag-and-drop ---------- */
@@ -267,12 +297,8 @@ function renderCards(snap){
   // SKINCARE (AM/PM/streak) + botões toggle marcar⇄desfazer de cada rotina
   if (snap.skincare){
     const s = snap.skincare, am = s.am||{}, pm = s.pm||{};
-    parts.push(card('Skincare', icon('skincare'), s.streak!=null?`${icon('flame')} ${s.streak}d`:'', `
-      <div class="skin-row">
-        <div class="skin-slot ${am.complete?'full':''}"><div class="s-lbl">Manhã</div><div class="s-val">${am.done||0}/${am.total||0}</div></div>
-        <div class="skin-slot ${pm.complete?'full':''}"><div class="s-lbl">Noite</div><div class="s-val">${pm.done||0}/${pm.total||0}</div></div>
-      </div>
-      <div class="btn-row">${skinBtn('am', am)}${skinBtn('pm', pm)}</div>`));
+    parts.push(card('Skincare', icon('skincare'), s.streak!=null?`${icon('flame')} ${s.streak}d`:'',
+      skinRoutine('am', am, 'Manhã') + skinRoutine('pm', pm, 'Noite')));
   }
 
   // MEDITAÇÃO (só marcar — não desmarca pelo celular)
@@ -400,9 +426,10 @@ function saveEditor(){
   if (id){   // editar (OTIMISTA — muda na hora)
     optimisticPrio(pr => { const it = pr.itens.find(i => i.id === id); if (it){ it.text = text; it.note = note || undefined; } });
     postEvent({ type:'intent.edit', intentId:id, text, note }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao salvar'); refresh(); });
-  } else {   // adicionar (OTIMISTA — item temp até o Mac atribuir o ts real; é substituído no próximo snapshot)
-    optimisticPrio(pr => { pr.itens.push({ id: 'tmp' + Date.now(), text, done:false, note: note || undefined, type: itype }); });
-    postEvent({ type:'intent.add', text, note, itype }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao adicionar'); refresh(); });
+  } else {   // adicionar — o celular gera o ts (id real) e manda; o item otimista já nasce com o id certo,
+    const newTs = Date.now();   // (assim mexer nele antes de sincronizar não quebra — mesmo id nos 2 lados)
+    optimisticPrio(pr => { pr.itens.push({ id: newTs, text, done:false, note: note || undefined, type: itype }); });
+    postEvent({ type:'intent.add', text, note, itype, newTs }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao adicionar'); refresh(); });
   }
 }
 function deleteIntent(){
@@ -412,6 +439,20 @@ function deleteIntent(){
   optimisticPrio(pr => { pr.itens = pr.itens.filter(i => i.id !== id); });
   postEvent({ type:'intent.remove', intentId:id }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao apagar'); refresh(); });
 }
+
+/* ---------- info de um passo do skincare (o que fazer / como aplicar) ---------- */
+function openSkinInfo(type, title){
+  const lib = SKIN_LIB[type] || {}, info = lib.info || {};
+  $('skinInfoTitle').textContent = title + (lib.name ? ' · ' + lib.name : '');
+  const rows = [];
+  if (info.funcao)  rows.push(`<p><b>Função</b><br>${escapeHtml(info.funcao)}</p>`);
+  if (info.aplicar) rows.push(`<p><b>Como aplicar</b><br>${escapeHtml(info.aplicar)}</p>`);
+  if (info.esperar) rows.push(`<p><b>Esperar</b><br>${escapeHtml(info.esperar)}</p>`);
+  if (info.regra)   rows.push(`<p><b>Regra</b><br>${escapeHtml(info.regra)}</p>`);
+  $('skinInfoBody').innerHTML = rows.join('') || '<p>Sem detalhes pra este passo.</p>';
+  $('skinInfoModal').hidden = false;
+}
+function closeSkinInfo(){ $('skinInfoModal').hidden = true; }
 
 /* ---------- ações (delegado uma vez; renderCards troca o innerHTML a cada poll) ---------- */
 $('cards').addEventListener('click', async (e) => {
@@ -430,6 +471,17 @@ $('cards').addEventListener('click', async (e) => {
     const id = Number(btn.dataset.id);
     optimisticPrio(pr => { const it = pr.itens.find(i => i.id === id); if (it) it.done = !it.done; });
     try{ await postEvent({ type:'intent.toggle', intentId:id }); schedulePrioRefresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    return;
+  }
+
+  // SKINCARE: expandir rotina (local), ver info do passo (local), marcar passo (otimista)
+  if (ev === 'skin.open'){ _skinOpen[btn.dataset.rt] = !_skinOpen[btn.dataset.rt]; if (_lastSnap) render(_lastSnap); return; }
+  if (ev === 'skin.info'){ openSkinInfo(btn.dataset.type, btn.dataset.title); return; }
+  if (ev === 'skincare.step'){
+    const rt = btn.dataset.rt, title = btn.dataset.title, target = btn.dataset.done !== '1';
+    optimisticSkinStep(rt, title);
+    try{ await postEvent({ type:'skincare.step', routine:rt, title, done: target }); schedulePrioRefresh(); }
     catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
     return;
   }
@@ -483,6 +535,8 @@ $('editSave').addEventListener('click', saveEditor);
 $('editCancel').addEventListener('click', closeEditor);
 $('editDelete').addEventListener('click', deleteIntent);
 $('editModal').addEventListener('click', e=>{ if (e.target === $('editModal')) closeEditor(); });
+$('skinInfoClose').addEventListener('click', closeSkinInfo);
+$('skinInfoModal').addEventListener('click', e=>{ if (e.target === $('skinInfoModal')) closeSkinInfo(); });
 // drag-and-drop de prioridades (pointer/touch)
 $('cards').addEventListener('pointerdown', prioDragStart);
 document.addEventListener('pointermove', prioDragMove);

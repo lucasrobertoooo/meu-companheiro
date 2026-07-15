@@ -142,6 +142,31 @@ body{
 .skin-slot .s-val{font-size:16px;font-weight:800;margin-top:3px}
 .skin-slot.full{background:var(--sage-soft);border-color:#3a4a36}
 .skin-slot.full .s-val{color:#bcd3b0}
+
+/* skincare expansível (passos item a item) */
+.skin-rt{margin-bottom:10px}
+.skin-rt:last-child{margin-bottom:0}
+.skin-rthead{width:100%;display:flex;align-items:center;gap:10px;background:var(--paper-2);border:1px solid var(--line);
+  border-radius:12px;padding:12px 14px;color:var(--ink);font-family:inherit;font-size:14px;font-weight:700;cursor:pointer}
+.skin-rthead.full{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0}
+.skin-rtname{flex:1;text-align:left}
+.skin-rtcount{font-size:13px;font-weight:800;color:var(--muted)}
+.skin-rthead.full .skin-rtcount{color:#bcd3b0}
+.skin-rtchev{display:grid;place-items:center;color:var(--muted)}
+.skin-rtchev .ic-svg{width:16px;height:16px}
+.skin-steps{display:flex;flex-direction:column;gap:6px;padding:8px 2px 2px 8px}
+.skin-step{display:flex;align-items:center;gap:10px}
+.skin-stepmain{flex:1;display:flex;align-items:center;gap:8px;background:none;border:none;text-align:left;
+  color:var(--ink);font-family:inherit;font-size:13.5px;cursor:pointer;padding:6px 0;min-width:0}
+.skin-step.done .skin-steptitle{text-decoration:line-through;color:var(--muted)}
+.skin-stepsub{font-size:11.5px;color:var(--muted)}
+.skin-stepinfo{color:var(--muted);display:inline-grid;place-items:center;flex:none}
+.skin-stepinfo .ic-svg{width:14px;height:14px}
+.mark-btn.skin-all{margin-top:8px;padding:9px;font-size:12.5px;background:none;border:1px dashed var(--line);color:var(--ink-soft)}
+/* info de um passo */
+.skin-info-body p{font-size:13px;color:var(--ink-soft);line-height:1.45;margin-bottom:11px}
+.skin-info-body b{color:var(--ink);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+
 .mark-btn{width:100%;margin-top:12px;padding:12px;border-radius:12px;border:1px solid #5a3a2c;
   background:var(--clay-soft);color:#f2b79e;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;
   transition:opacity .2s}
