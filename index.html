@@ -71,6 +71,19 @@
     </div>
   </div>
 
+  <!-- Modal de nota de uma prioridade -->
+  <div class="modal-backdrop" id="noteModal" hidden>
+    <div class="modal">
+      <h3>Nota</h3>
+      <div class="note-item-text" id="noteItemText"></div>
+      <textarea id="noteText" rows="4" placeholder="adicione uma nota a esta prioridade…"></textarea>
+      <div class="modal-actions">
+        <button id="noteCancel" class="btn ghost">Cancelar</button>
+        <button id="noteSave" class="btn">Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="./app.js"></script>
 </body>
 </html>

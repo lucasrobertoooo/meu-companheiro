@@ -7,6 +7,9 @@ const CFG_KEY = 'companheiro.sync.cfg';
 const SNAP_CACHE = 'companheiro.sync.lastSnap';
 const POLL_MS = 25000;
 let _pending = {};        // otimista: mapa key→alvo(bool) aguardando o Mac confirmar no snapshot
+let _prioTab = localStorage.getItem('companheiro.prioTab') || 'todos';   // filtro local (não sincroniza)
+let _showHist = false;    // histórico de prioridades expandido?
+let _lastSnap = null;     // último snapshot (pra re-render local ao trocar tab/histórico)
 
 const AURA = { normal:'rgba(138,92,240,.42)', prata:'rgba(184,184,196,.44)', ouro:'rgba(232,192,90,.52)' };
 
@@ -157,6 +160,35 @@ function skinBtn(routine, slot){
   return `<button class="mark-btn half ${cls}" data-ev="skincare.${routine}" data-done="${done?1:0}" ${pend?'disabled':''}>${lbl}</button>`;
 }
 
+// corpo do card de Prioridades: tabs (filtro local) + itens (toggle/nota) + histórico. PRIORIDADES-EDIT-F.A.
+function prioBody(pr){
+  const items = pr.itens || [];
+  const tab = _prioTab;
+  const filtered = items.filter(i => tab === 'todos' || (i.type || 'pessoal') === tab);
+  const tabs = ['trabalho', 'pessoal', 'todos']
+    .map(t => `<button class="ptab ${t === tab ? 'on' : ''}" data-ptab="${t}">${t}</button>`).join('');
+  const rows = filtered.length ? filtered.map(it => {
+    const pend = pendingFor('intent:' + it.id, it.done);
+    const note = it.note ? `<div class="prio-note">${escapeHtml(it.note)}</div>` : '';
+    return `<div class="prio-item ${it.done ? 'done' : ''} ${pend ? 'wait' : ''}">
+      <button class="prio-chk ${it.done ? 'on' : ''}" data-ev="intent.toggle" data-id="${it.id}" aria-label="marcar/desmarcar">${it.done ? icon('check') : ''}</button>
+      <button class="prio-main" data-ev="intent.editnote" data-id="${it.id}" data-text="${escapeHtml(it.text)}" data-note="${escapeHtml(it.note || '')}">
+        <span class="prio-txt">${escapeHtml(it.text)}</span>${note}
+      </button>
+    </div>`;
+  }).join('') : `<div class="todo-empty">nada em ${tab} ${icon('check')}</div>`;
+  const hist = pr.history || [];
+  const histBtn = hist.length ? `<button class="prio-histbtn" data-ev="prio.hist">${_showHist ? 'ocultar histórico' : 'ver histórico'}</button>` : '';
+  let histSec = '';
+  if (_showHist && hist.length){
+    histSec = '<div class="prio-hist">' + hist.map(day =>
+      `<div class="prio-histday">${day.date}</div>` +
+      (day.itens || []).map(h => `<div class="prio-histitem">${icon('check')} ${escapeHtml(h.text)}</div>`).join('')
+    ).join('') + '</div>';
+  }
+  return `<div class="ptabs">${tabs}</div><div class="prio-list">${rows}</div>${histBtn}${histSec}`;
+}
+
 function renderCards(snap){
   const parts = [];
 
@@ -172,13 +204,10 @@ function renderCards(snap){
       <button class="mark-btn" data-ev="agua.bottle">+1 garrafa (${w.bottleMl||700} ml)</button>`));
   }
 
-  // PRIORIDADES (cada item toca pra marcar feito)
+  // PRIORIDADES — lista editável (tabs, notas, histórico, marcar/desmarcar). PRIORIDADES-EDIT-F.A.
   if (snap.prioridades){
     const pr = snap.prioridades;
-    const body = (pr.itens && pr.itens.length)
-      ? `<div class="todo-list">${pr.itens.map(t=>`<button class="todo-item" data-ev="prioridade.done" data-text="${escapeHtml(t)}"><span class="todo-check">○</span><span class="todo-txt">${escapeHtml(t)}</span></button>`).join('')}</div>`
-      : `<div class="todo-empty">tudo em dia por aqui ${icon('check')}</div>`;
-    parts.push(card('Prioridades', icon('prioridades'), `${pr.pending}/${pr.total} pendentes`, body));
+    parts.push(card('Prioridades', icon('prioridades'), `${pr.pending}/${pr.total}`, prioBody(pr)));
   }
 
   // SKINCARE (AM/PM/streak) + botões toggle marcar⇄desfazer de cada rotina
@@ -225,6 +254,7 @@ function renderFreshness(snap){
 }
 
 function render(snap){
+  _lastSnap = snap;
   document.body.classList.remove('loading', 'needcfg');
   renderFreshness(snap);
   renderHero(snap.creature || {});
@@ -286,27 +316,60 @@ async function saveCfg(){
   }
 }
 
+/* ---------- editor de nota da prioridade ---------- */
+let _noteId = null;
+function openNote(id, text, note){
+  _noteId = id;
+  $('noteItemText').textContent = text;
+  $('noteText').value = note || '';
+  $('noteModal').hidden = false;
+  setTimeout(() => { try{ $('noteText').focus(); }catch(e){} }, 120);
+}
+function closeNote(){ $('noteModal').hidden = true; _noteId = null; }
+async function saveNote(){
+  if (_noteId == null) return;
+  const note = $('noteText').value;
+  const b = $('noteSave'); b.disabled = true; b.textContent = 'salvando…';
+  try{
+    await postEvent({ type:'intent.note', intentId:_noteId, note });
+    closeNote();
+    [4,9,15,22].forEach(s => setTimeout(refresh, s*1000));   // pega quando o hub aplicar
+  }catch(err){ flashError(err.message || 'falha ao salvar'); }
+  b.disabled = false; b.textContent = 'Salvar';
+}
+
 /* ---------- ações (delegado uma vez; renderCards troca o innerHTML a cada poll) ---------- */
 $('cards').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-ev]');
   if (!btn || btn.disabled) return;
   const ev = btn.dataset.ev, label = btn.textContent;
 
-  // ÁGUA / PRIORIDADE: tocam o sagrado + dão XP → aplicam pelo widget quando o hub está aberto.
-  // fire-and-forget (não travam esperando confirmação, que pode demorar se o hub estiver fechado).
-  if (ev === 'agua.bottle' || ev === 'prioridade.done'){
-    const evt = ev === 'agua.bottle' ? { type:'agua.bottle' } : { type:'prioridade.done', text: btn.dataset.text };
-    const chk = btn.querySelector('.todo-check');
-    btn.disabled = true;
-    if (ev === 'agua.bottle') btn.textContent = 'enviado ✓'; else if (chk) chk.textContent = '✓';
+  // LOCAL (sem rede): tab de prioridades / mostrar-ocultar histórico / abrir editor de nota
+  if (btn.dataset.ptab){ _prioTab = btn.dataset.ptab; localStorage.setItem('companheiro.prioTab', _prioTab); if (_lastSnap) render(_lastSnap); return; }
+  if (ev === 'prio.hist'){ _showHist = !_showHist; if (_lastSnap) render(_lastSnap); return; }
+  if (ev === 'intent.editnote'){ openNote(Number(btn.dataset.id), btn.dataset.text || '', btn.dataset.note || ''); return; }
+
+  // PRIORIDADE toggle (marca/DESMARCA por id): aplica pelo widget quando o hub abre; otimista via _pending.
+  if (ev === 'intent.toggle'){
+    const id = Number(btn.dataset.id);
+    if (('intent:' + id) in _pending) return;                 // já em voo → ignora re-tap
+    const item = ((_lastSnap && _lastSnap.prioridades && _lastSnap.prioridades.itens) || []).find(i => i.id === id);
+    const target = item ? !item.done : true;
+    _pending['intent:' + id] = target;
+    if (_lastSnap) render(_lastSnap);                          // repinta otimista (item entra em 'wait')
+    try{ await postEvent({ type:'intent.toggle', intentId:id }); [4,9,15,22,32].forEach(s=>setTimeout(refresh, s*1000)); }
+    catch(err){ delete _pending['intent:'+id]; if(_lastSnap) render(_lastSnap); flashError(err.message || 'falha ao enviar'); }
+    return;
+  }
+
+  // ÁGUA: toca o sagrado + XP → aplica pelo widget quando o hub abre. fire-and-forget.
+  if (ev === 'agua.bottle'){
+    btn.disabled = true; btn.textContent = 'enviado ✓';
     try{
-      await postEvent(evt);
-      [6, 14, 24, 34].forEach(sec => setTimeout(refresh, sec * 1000));   // pega quando o hub aplicar
-      if (ev === 'agua.bottle') setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 4000);
-    }catch(err){
-      btn.disabled = false; if (ev === 'agua.bottle') btn.textContent = label; else if (chk) chk.textContent = '○';
-      flashError(err.message || 'falha ao enviar');
-    }
+      await postEvent({ type:'agua.bottle' });
+      [6, 14, 24, 34].forEach(sec => setTimeout(refresh, sec * 1000));
+      setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 4000);
+    }catch(err){ btn.disabled = false; btn.textContent = label; flashError(err.message || 'falha ao enviar'); }
     return;
   }
 
@@ -341,6 +404,9 @@ $('gear').addEventListener('click', openModal);
 $('cfgSave').addEventListener('click', saveCfg);
 $('cfgClear').addEventListener('click', ()=>{ clearCfg(); $('cfgPat').value=''; $('cfgStatus').className='modal-status'; $('cfgStatus').textContent='limpo'; });
 $('modal').addEventListener('click', e=>{ if (e.target === $('modal')) closeModal(); });
+$('noteSave').addEventListener('click', saveNote);
+$('noteCancel').addEventListener('click', closeNote);
+$('noteModal').addEventListener('click', e=>{ if (e.target === $('noteModal')) closeNote(); });
 document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) refresh(); });
 
 if ('serviceWorker' in navigator){
