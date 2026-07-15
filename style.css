@@ -221,3 +221,49 @@ body.needcfg .onboard{display:block}
 
 .fade-in{animation:fade .5s ease}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---------- Financeiro (FIN-LOCAL-2026-07-15) ---------- */
+.fin-sum{display:flex;gap:8px;margin-bottom:10px}
+.fin-stat{flex:1;background:var(--paper-2);border:1px solid var(--line);border-radius:11px;padding:9px 6px;text-align:center}
+.fin-stat small{display:block;font-size:10px;color:var(--muted);margin-bottom:3px}
+.fin-stat b{font-size:13px;font-weight:700}
+.fin-stat.sobra.pos b{color:var(--sage)}
+.fin-stat.sobra.neg b{color:#e79b86}
+.fin-livres{font-size:12px;color:var(--muted);margin-bottom:12px;text-align:center}
+.fin-livres b{color:var(--ink-soft)}
+.fin-cats{display:flex;flex-direction:column;gap:7px}
+.fin-cathead{width:100%;display:flex;align-items:center;gap:9px;background:var(--paper-2);border:1px solid var(--line);
+  border-radius:11px;padding:11px 12px;color:var(--ink);font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer;text-align:left}
+.fin-catname{flex:1}
+.fin-catcount{font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:1px 7px;min-width:20px;text-align:center}
+.fin-catsub{font-size:12.5px;color:var(--ink-soft);font-weight:700}
+.fin-catchev{display:inline-grid;place-items:center;color:var(--muted)}
+.fin-catchev .ic-svg{width:16px;height:16px}
+.fin-rows{display:flex;flex-direction:column;gap:6px;padding:8px 2px 2px 8px}
+.fin-row{display:flex;align-items:center;gap:8px}
+.fin-row.pago{opacity:.72}
+.fin-row.canc .fin-lbl{text-decoration:line-through;color:var(--muted)}
+.fin-status{flex:none;font-size:10px;font-weight:700;padding:4px 7px;border-radius:20px;border:1px solid var(--line);
+  background:var(--bg);color:var(--ink-soft);cursor:pointer;font-family:inherit;min-width:62px;text-align:center}
+.fin-status.s-pago{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0}
+.fin-status.s-atrasado{background:#3a2422;border-color:#5a2c2c;color:#e79b86}
+.fin-status.s-cancelado{background:none;color:var(--muted);text-decoration:line-through}
+.fin-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;align-items:flex-start;background:none;border:none;
+  text-align:left;font-family:inherit;color:var(--ink);cursor:pointer;padding:0}
+.fin-lbl{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.fin-badges{display:flex;gap:4px}
+.fin-bdg{font-size:10px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:0 5px}
+.fin-bdg.split{color:#c0a0e0;border-color:#3a2a4a}
+.fin-val{flex:none;font-size:13px;font-weight:700;color:var(--ink)}
+.fin-add{width:100%;margin-top:6px;padding:9px;border-radius:10px;border:1px dashed var(--line);background:none;
+  color:var(--muted);font-family:inherit;font-size:12.5px;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+.fin-add .ic-svg{width:14px;height:14px}
+.fin-add:active{background:var(--paper-2)}
+/* editor do financeiro */
+.fin-frow{display:flex;gap:10px}
+.fin-frow label{flex:1}
+.modal select{width:100%;margin-top:4px;background:var(--paper-2);border:1px solid var(--line);border-radius:10px;
+  padding:10px 12px;color:var(--ink);font-size:14px;font-family:inherit;appearance:none;-webkit-appearance:none}
+.modal select:focus{outline:none;border-color:var(--clay)}
+.chk-line{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-soft)}
+.chk-line input{width:auto;margin:0}

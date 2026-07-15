@@ -94,6 +94,38 @@
     </div>
   </div>
 
+  <!-- Editor de linha do financeiro (nova / editar / apagar) -->
+  <div class="modal-backdrop" id="finModal" hidden>
+    <div class="modal">
+      <h3 id="finTitle">Editar linha</h3>
+      <label>Descrição <input id="finLabel" placeholder="ex: Aluguel" autocapitalize="sentences"></label>
+      <div class="fin-frow">
+        <label>Valor (R$) <input id="finValor" inputmode="decimal" placeholder="0,00" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+        <label>Vence dia <input id="finVenc" inputmode="numeric" placeholder="1–31" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      </div>
+      <div class="fin-frow">
+        <label>Categoria
+          <select id="finCat">
+            <option>Tenho</option><option>Receber</option><option>Fixo</option>
+            <option>Variável</option><option>Cartão</option><option>Investir</option>
+          </select>
+        </label>
+        <label>Status
+          <select id="finStatus">
+            <option>Previsto</option><option>Pago</option><option>Atrasado</option><option>Cancelado</option>
+          </select>
+        </label>
+      </div>
+      <label class="chk-line"><input type="checkbox" id="finSplit"> dividir com a esposa</label>
+      <label>Nota <textarea id="finNota" rows="2" placeholder="detalhes (opcional)"></textarea></label>
+      <div class="modal-actions">
+        <button id="finDelete" class="btn danger">Apagar</button>
+        <button id="finCancel" class="btn ghost">Cancelar</button>
+        <button id="finSave" class="btn">Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="./app.js"></script>
 </body>
 </html>

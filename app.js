@@ -35,6 +35,7 @@ const ICONS = {
   plus:        _svg('<path d="M12 5v14M5 12h14"/>'),
   grip:        _svg('<circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/>'),
   info:        _svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5h.01"/>'),
+  financeiro:  _svg('<rect x="2.5" y="6" width="19" height="13" rx="2.2"/><path d="M2.5 10.5h19"/><path d="M15.5 15h3"/>'),
 };
 const icon = n => ICONS[n] || '';
 
@@ -273,6 +274,74 @@ function prioBody(pr){
   return `<div class="ptabs">${tabs}</div><div class="prio-list">${rows}</div>${addBtn}${histBtn}${histSec}`;
 }
 
+/* ---------- financeiro: card LOCAL editável (resumo + categorias expansíveis + linhas). FIN-LOCAL-2026-07-15 ---------- */
+const FIN_CATS = ['Tenho', 'Receber', 'Fixo', 'Variável', 'Cartão', 'Investir'];
+const FIN_STATUS = ['Previsto', 'Pago', 'Atrasado', 'Cancelado'];
+const _MES_ABBR = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+let _finOpen = {};
+try{ _finOpen = JSON.parse(localStorage.getItem('companheiro.finOpen')) || {}; }catch{ _finOpen = {}; }
+function saveFinOpen(){ localStorage.setItem('companheiro.finOpen', JSON.stringify(_finOpen)); }
+function fmtBRL(v){ return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
+function fmtMes(mes){ const p = String(mes||'').split('-'); return (_MES_ABBR[(+p[1])-1] || p[1] || '') + '/' + (p[0]||''); }
+// pt-BR: ponto = milhar, vírgula = decimal ("1.234,56" → 1234.56)
+function parseValBR(s){
+  s = String(s).trim().replace(/[^\d.,-]/g, '');
+  if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(s); return isNaN(n) ? 0 : n;
+}
+// recomputa o resumo IGUAL ao Mac (summarize) → o otimista bate na hora sem esperar o snapshot
+function recomputeFin(fin){
+  const rows = fin.rows || [];
+  let tenho = 0, livres = null;
+  const pend = { Receber:0, Fixo:0, 'Variável':0, 'Cartão':0, Investir:0 };
+  for (const r of rows){
+    if (r.cat === 'Tenho') tenho += r.valor || 0;
+    else if (r.status === 'Pago'){ /* realizado — fora do pendente */ }
+    else if (r.status !== 'Cancelado' && (r.cat in pend)) pend[r.cat] += r.valor || 0;
+    if (r.cat === 'Variável' && String(r.label||'').toLowerCase().includes('livre')) livres = (livres||0) + (r.valor||0);
+  }
+  const previsto = pend.Fixo + pend['Variável'] + pend['Cartão'];
+  fin.summary = { tenho, receber: pend.Receber, previsto, investir: pend.Investir,
+                  sobra: tenho + pend.Receber - previsto - pend.Investir, livres };
+}
+function optimisticFin(fn){
+  if (_lastSnap && _lastSnap.financeiro && Array.isArray(_lastSnap.financeiro.rows)){
+    fn(_lastSnap.financeiro); recomputeFin(_lastSnap.financeiro); render(_lastSnap);
+  }
+}
+function finBody(fin){
+  const rows = fin.rows || [], sm = fin.summary || {};
+  const stat = (lbl, v, extra='') => `<div class="fin-stat ${extra}"><small>${lbl}</small><b>${fmtBRL(v)}</b></div>`;
+  const sobraCls = (sm.sobra||0) < 0 ? 'neg' : 'pos';
+  let head = `<div class="fin-sum">${stat('tenho', sm.tenho||0)}${stat('a receber', sm.receber||0)}${stat('sobra', sm.sobra||0, 'sobra '+sobraCls)}</div>`;
+  if (sm.livres != null) head += `<div class="fin-livres">gastos livres <b>${fmtBRL(sm.livres)}</b></div>`;
+  const cats = FIN_CATS.map(cat => {
+    const crows = rows.filter(r => r.cat === cat);
+    const sub = crows.reduce((a, r) => a + (r.valor||0), 0);
+    const open = !!_finOpen[cat];
+    const h = `<button class="fin-cathead" data-ev="fin.cat" data-cat="${cat}">
+      <span class="fin-catname">${cat}</span><span class="fin-catcount">${crows.length}</span>
+      <span class="fin-catsub">${fmtBRL(sub)}</span><span class="fin-catchev">${icon(open ? 'up' : 'down')}</span></button>`;
+    if (!open) return `<div class="fin-cat">${h}</div>`;
+    const list = crows.length ? crows.map(r => {
+      const badges = [];
+      if (r.venc)  badges.push(`<span class="fin-bdg" title="vence dia ${r.venc}">d${r.venc}</span>`);
+      if (r.split) badges.push(`<span class="fin-bdg split" title="dividir com a esposa">÷</span>`);
+      const sc = 's-' + String(r.status||'Previsto').toLowerCase();
+      const rid = escapeHtml(String(r.id));
+      return `<div class="fin-row ${r.status==='Pago'?'pago':''} ${r.status==='Cancelado'?'canc':''}" data-id="${rid}">
+        <button class="fin-status ${sc}" data-ev="fin.status" data-id="${rid}" data-status="${escapeHtml(r.status||'Previsto')}">${escapeHtml(r.status||'Previsto')}</button>
+        <button class="fin-main" data-ev="fin.edit" data-id="${rid}">
+          <span class="fin-lbl">${escapeHtml(r.label||'(sem nome)')}</span>${badges.length?`<span class="fin-badges">${badges.join('')}</span>`:''}
+        </button>
+        <span class="fin-val">${fmtBRL(r.valor)}</span>
+      </div>`;
+    }).join('') : `<div class="todo-empty">sem linhas</div>`;
+    return `<div class="fin-cat">${h}<div class="fin-rows">${list}<button class="fin-add" data-ev="fin.new" data-cat="${cat}">${icon('plus')} nova linha</button></div></div>`;
+  }).join('');
+  return head + `<div class="fin-cats">${cats}</div>`;
+}
+
 function renderCards(snap){
   const parts = [];
 
@@ -286,6 +355,11 @@ function renderCards(snap){
           <small>${w.bottles||0} garrafa(s) de ${w.bottleMl||0} ml</small></div>
       </div>
       <button class="mark-btn" data-ev="agua.bottle">+1 garrafa (${w.bottleMl||700} ml)</button>`));
+  }
+
+  // FINANCEIRO — módulo LOCAL editável (resumo + categorias + linhas). FIN-LOCAL-2026-07-15.
+  if (snap.financeiro){
+    parts.push(card('Financeiro', icon('financeiro'), fmtMes(snap.financeiro.mes), finBody(snap.financeiro)));
   }
 
   // PRIORIDADES — lista editável (tabs, notas, histórico, marcar/desmarcar). PRIORIDADES-EDIT-F.A.
@@ -454,6 +528,58 @@ function openSkinInfo(type, title){
 }
 function closeSkinInfo(){ $('skinInfoModal').hidden = true; }
 
+/* ---------- editor de linha do financeiro (nova / editar / apagar) ---------- */
+let _finEditId = null;
+function finNewId(){ return 'm' + Date.now(); }   // id do celular = id real (mesmo nos 2 lados; sem temp-id)
+function openFinEditor(id, cat){
+  const fin = _lastSnap && _lastSnap.financeiro;
+  const row = (id && fin) ? (fin.rows||[]).find(r => String(r.id) === String(id)) : null;
+  _finEditId = row ? String(row.id) : null;
+  $('finTitle').textContent = row ? 'Editar linha' : 'Nova linha';
+  $('finLabel').value  = row ? (row.label||'') : '';
+  $('finValor').value  = row ? String(row.valor||0).replace('.', ',') : '';
+  $('finCat').value    = row ? row.cat : (cat || 'Variável');
+  $('finStatus').value = row ? (row.status||'Previsto') : 'Previsto';
+  $('finVenc').value   = (row && row.venc) ? String(row.venc) : '';
+  $('finSplit').checked = row ? !!row.split : false;
+  $('finNota').value   = row ? (row.nota||'') : '';
+  $('finDelete').style.display = row ? '' : 'none';
+  $('finModal').hidden = false;
+  setTimeout(() => { try{ $('finLabel').focus(); }catch(e){} }, 120);
+}
+function closeFinEditor(){ $('finModal').hidden = true; _finEditId = null; }
+function saveFinEditor(){
+  const label = $('finLabel').value.trim();
+  if (!label){ flashError('a descrição não pode ficar vazia'); return; }
+  const valor = parseValBR($('finValor').value);
+  const cat = $('finCat').value, status = $('finStatus').value;
+  const vencRaw = parseInt($('finVenc').value, 10);
+  const venc = (!isNaN(vencRaw) && vencRaw >= 1 && vencRaw <= 31) ? vencRaw : null;
+  const split = $('finSplit').checked;
+  const nota = $('finNota').value.trim();
+  const mes = (_lastSnap && _lastSnap.financeiro && _lastSnap.financeiro.mes) || undefined;
+  const id = _finEditId;
+  closeFinEditor();
+  if (id){   // editar (OTIMISTA)
+    optimisticFin(fin => { const r = (fin.rows||[]).find(x => String(x.id) === id);
+      if (r){ r.label=label; r.valor=valor; r.cat=cat; r.status=status; r.venc=venc||undefined; r.split=split; r.nota=nota||undefined; } });
+    postEvent({ type:'fin.edit', id, label, valor, cat, status, venc: (venc===null?'':venc), split, nota })
+      .then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao salvar'); refresh(); });
+  } else {   // nova — o celular gera o id (real = otimista)
+    const nid = finNewId();
+    optimisticFin(fin => { fin.rows.push({ id:nid, mes, label, valor, cat, status, venc: venc||undefined, split, nota: nota||undefined }); });
+    if (!_finOpen[cat]){ _finOpen[cat] = true; saveFinOpen(); }
+    postEvent({ type:'fin.add', id:nid, mes, label, valor, cat, status, venc: (venc===null?undefined:venc), split, nota })
+      .then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao adicionar'); refresh(); });
+  }
+}
+function deleteFinRow(){
+  if (!_finEditId) return;
+  const id = _finEditId; closeFinEditor();
+  optimisticFin(fin => { fin.rows = (fin.rows||[]).filter(r => String(r.id) !== id); });
+  postEvent({ type:'fin.delete', id }).then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao apagar'); refresh(); });
+}
+
 /* ---------- ações (delegado uma vez; renderCards troca o innerHTML a cada poll) ---------- */
 $('cards').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-ev],[data-ptab]');
@@ -482,6 +608,19 @@ $('cards').addEventListener('click', async (e) => {
     const rt = btn.dataset.rt, title = btn.dataset.title, target = btn.dataset.done !== '1';
     optimisticSkinStep(rt, title);
     try{ await postEvent({ type:'skincare.step', routine:rt, title, done: target }); schedulePrioRefresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    return;
+  }
+
+  // FINANCEIRO (local, aplica direto — funciona com o hub fechado): expandir cat, ciclar status, editar, nova
+  if (ev === 'fin.cat'){ const c = btn.dataset.cat; _finOpen[c] = !_finOpen[c]; saveFinOpen(); if (_lastSnap) render(_lastSnap); return; }
+  if (ev === 'fin.edit'){ openFinEditor(btn.dataset.id); return; }
+  if (ev === 'fin.new'){ openFinEditor(null, btn.dataset.cat); return; }
+  if (ev === 'fin.status'){
+    const id = btn.dataset.id, cur = btn.dataset.status || 'Previsto';
+    const next = FIN_STATUS[(FIN_STATUS.indexOf(cur) + 1) % FIN_STATUS.length];
+    optimisticFin(fin => { const r = (fin.rows||[]).find(x => String(x.id) === String(id)); if (r) r.status = next; });
+    try{ await postEvent({ type:'fin.edit', id, status: next }); schedulePrioRefresh(); }
     catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
     return;
   }
@@ -537,6 +676,10 @@ $('editDelete').addEventListener('click', deleteIntent);
 $('editModal').addEventListener('click', e=>{ if (e.target === $('editModal')) closeEditor(); });
 $('skinInfoClose').addEventListener('click', closeSkinInfo);
 $('skinInfoModal').addEventListener('click', e=>{ if (e.target === $('skinInfoModal')) closeSkinInfo(); });
+$('finSave').addEventListener('click', saveFinEditor);
+$('finCancel').addEventListener('click', closeFinEditor);
+$('finDelete').addEventListener('click', deleteFinRow);
+$('finModal').addEventListener('click', e=>{ if (e.target === $('finModal')) closeFinEditor(); });
 // drag-and-drop de prioridades (pointer/touch)
 $('cards').addEventListener('pointerdown', prioDragStart);
 document.addEventListener('pointermove', prioDragMove);
