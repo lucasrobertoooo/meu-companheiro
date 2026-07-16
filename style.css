@@ -318,3 +318,22 @@ body.needcfg .onboard{display:block}
 /* ---------- Notificações (push) na config (PUSH-2026-07-15) ---------- */
 .push-sec{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
 .push-title{font-size:14px;font-weight:700;margin-bottom:4px}
+
+/* ---------- Layout do dia: concluídos minimizados (LAYOUT-DIA-2026-07-15) ---------- */
+.cards-sep{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700;
+  margin:20px 2px 2px;display:flex;align-items:center;gap:8px}
+.cards-sep::after{content:'';flex:1;height:1px;background:var(--line)}
+.card-mini{width:100%;display:flex;align-items:center;gap:10px;background:var(--paper);border:1px solid var(--line);
+  border-radius:14px;padding:11px 14px;font-family:inherit;color:var(--ink-soft);cursor:pointer;text-align:left;opacity:.82}
+.card-mini:active{opacity:1}
+.card-mini .ic{display:inline-grid;place-items:center;color:var(--muted)}
+.card-mini .ic .ic-svg{width:17px;height:17px}
+.card-mini .mini-title{flex:1;font-size:13.5px;font-weight:600;color:var(--ink)}
+.card-mini .mini-done{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--sage)}
+.card-mini .mini-done .ic-svg{width:14px;height:14px}
+.card-mini .mini-chev{display:inline-grid;place-items:center;color:var(--muted)}
+.card-mini .mini-chev .ic-svg{width:15px;height:15px}
+.card-collapse{background:none;border:none;color:var(--muted);font-family:inherit;font-size:11.5px;cursor:pointer;
+  display:flex;align-items:center;gap:4px}
+.card-collapse .ic-svg{width:13px;height:13px}
+.ghost-btn{margin-top:8px;background:none;border:1px dashed var(--line);color:var(--muted);font-weight:600}

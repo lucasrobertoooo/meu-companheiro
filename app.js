@@ -383,110 +383,122 @@ function renderFinFull(){
 
 const DAY_MOOD_EMOJI = { leve:'😊', normal:'😐', puxado:'😩' };
 const PELVIC_SLOTS = [['morning','manhã'], ['afternoon','tarde'], ['evening','noite']];
-// otimista: marca um slot do pélvico no snapshot local + recomputa done
-function optimisticPelvic(slot){
+let _cardExpanded = {};   // cards concluídos que o Lucas expandiu (default = minimizado; não persiste)
+// otimista: marca/desmarca um slot do pélvico no snapshot local + recomputa done
+function optimisticPelvic(slot, target){
   const pv = _lastSnap && _lastSnap.pelvico; if (!pv) return;
-  pv.slots = pv.slots || {}; pv.slots[slot] = true;
+  pv.slots = pv.slots || {}; pv.slots[slot] = target;
   pv.done = PELVIC_SLOTS.filter(([k]) => pv.slots[k]).length;
   render(_lastSnap);
 }
+// LAYOUT-DIA-2026-07-15 · monta os cards de hábito como descritores {done} e ordena:
+// pendentes (abertos, topo) → concluídos (minimizados, embaixo) → Financeiro (ferramenta, fim).
 function renderCards(snap){
-  const parts = [];
+  const daily = [];
 
-  // FECHAR O DIA — ritual de fim de dia (mood + frase). Toca o sagrado (+15 XP/streak) → aplica pelo
-  // widget quando o hub abre; fire-and-forget, deduped. MOBILE-DAYLOG-2026-07-15.
+  // FECHAR O DIA — sacro (+15 XP/streak) → aplica pelo widget quando o hub abre; fire-and-forget.
   if (snap.daylog){
     const dl = snap.daylog, closed = !!dl.closed, pend = pendingFor('daylog', closed);
     const em = DAY_MOOD_EMOJI[dl.mood] || '';
     let body;
-    if (pend && !closed){
-      body = `<button class="mark-btn wait" disabled>enviado ✓ · fecha quando o Mac abrir</button>`;
-    } else if (closed){
-      body = `<button class="mark-btn done" data-ev="day.open">dia fechado hoje ${em} · revisar</button>`;
-    } else {
-      body = `<div class="day-prompt">Como foi o seu dia?</div><button class="mark-btn" data-ev="day.open">fechar o dia</button>`;
-    }
-    parts.push(card('Fechar o dia', icon('moon'), '', body));
+    if (pend && !closed) body = `<button class="mark-btn wait" disabled>enviado ✓ · fecha quando o Mac abrir</button>`;
+    else if (closed)     body = `<button class="mark-btn done" data-ev="day.open">dia fechado hoje ${em} · revisar</button>`;
+    else                 body = `<div class="day-prompt">Como foi o seu dia?</div><button class="mark-btn" data-ev="day.open">fechar o dia</button>`;
+    daily.push({ key:'daylog', title:'Fechar o dia', ic:icon('moon'), badge:'', body, done:closed, mini:`fechado ${em}` });
   }
 
-  // REFLEXÃO DO DIA — a criatura pergunta, você responde (uma linha → +12 XP). Sacro → aplica pelo hub.
+  // REFLEXÃO — sacro (+12 XP). Editar (reabrir modal) desfaz/ajusta.
   if (snap.reflexao && snap.reflexao.question){
-    const rf = snap.reflexao;
-    const q = `<div class="refl-q">${escapeHtml(rf.question)}</div>`;
+    const rf = snap.reflexao, q = `<div class="refl-q">${escapeHtml(rf.question)}</div>`;
     const body = rf.answered
       ? q + `<div class="refl-ans">${escapeHtml(rf.answer || '')}</div><button class="mark-btn done" data-ev="refl.open">respondido ✓ · editar</button>`
       : q + `<button class="mark-btn" data-ev="refl.open">responder</button>`;
-    parts.push(card('Reflexão do dia', icon('meditacao'), '', body));
+    daily.push({ key:'reflexao', title:'Reflexão do dia', ic:icon('meditacao'), badge:'', body, done:!!rf.answered, mini:'respondido' });
   }
 
-  // ÁGUA (com anel de %) + botão "+1 garrafa"
+  // ÁGUA — +1 garrafa e −1 (desfazer). "done" = bateu a meta (100%).
   if (snap.water){
-    const w = snap.water, p = Math.max(0, Math.min(100, w.pct||0));
-    parts.push(card('Água', icon('agua'), `meta ${(w.goalMl/1000).toFixed(1)} L`, `
+    const w = snap.water, p = Math.max(0, Math.min(100, w.pct||0)), done = p >= 100;
+    const undo = (w.bottles||0) > 0 ? `<button class="mark-btn ghost-btn" data-ev="agua.undo">−1 garrafa (desfazer)</button>` : '';
+    const body = `
       <div class="ring-row">
         <div class="ring" style="--p:${p};position:relative"><b>${p}%</b></div>
         <div class="ring-meta"><b>${(w.ml/1000).toFixed(2)} L</b> bebidos hoje
           <small>${w.bottles||0} garrafa(s) de ${w.bottleMl||0} ml</small></div>
       </div>
-      <button class="mark-btn" data-ev="agua.bottle">+1 garrafa (${w.bottleMl||700} ml)</button>`));
+      <button class="mark-btn" data-ev="agua.bottle">+1 garrafa (${w.bottleMl||700} ml)</button>${undo}`;
+    daily.push({ key:'agua', title:'Água', ic:icon('agua'), badge:`meta ${(w.goalMl/1000).toFixed(1)} L`, body, done, mini:`${(w.ml/1000).toFixed(1)} L` });
   }
 
-  // FINANCEIRO — home ENXUTA (só resumo + "ver completo"); o detalhe vive na tela cheia. FIN-MOBILE-FULL.
-  if (snap.financeiro){
-    parts.push(card('Financeiro', icon('financeiro'), fmtMes(snap.financeiro.mes), finHomeBody(snap.financeiro)));
-  }
-
-  // PRIORIDADES — lista editável (tabs, notas, histórico, marcar/desmarcar). PRIORIDADES-EDIT-F.A.
+  // PRIORIDADES — done só quando não sobra pendente. Toggle já desmarca por item.
   if (snap.prioridades){
-    const pr = snap.prioridades;
-    parts.push(card('Prioridades', icon('prioridades'), `${pr.pending}/${pr.total}`, prioBody(pr)));
+    const pr = snap.prioridades, done = (pr.total > 0 && pr.pending === 0);
+    daily.push({ key:'prio', title:'Prioridades', ic:icon('prioridades'), badge:`${pr.pending}/${pr.total}`, body:prioBody(pr), done, mini:'tudo feito' });
   }
 
-  // SKINCARE (AM/PM/streak) + botões toggle marcar⇄desfazer de cada rotina
+  // SKINCARE — done quando manhã+noite completas. Toggle já desfaz (rotina e passo).
   if (snap.skincare){
-    const s = snap.skincare, am = s.am||{}, pm = s.pm||{};
-    parts.push(card('Skincare', icon('skincare'), s.streak!=null?`${icon('flame')} ${s.streak}d`:'',
-      skinRoutine('am', am, 'Manhã') + skinRoutine('pm', pm, 'Noite')));
+    const s = snap.skincare, am = s.am||{}, pm = s.pm||{}, done = !!(am.complete && pm.complete);
+    daily.push({ key:'skin', title:'Skincare', ic:icon('skincare'), badge: s.streak!=null?`${icon('flame')} ${s.streak}d`:'',
+      body: skinRoutine('am', am, 'Manhã') + skinRoutine('pm', pm, 'Noite'), done, mini:'manhã + noite' });
   }
 
-  // MEDITAÇÃO (só marcar — não desmarca pelo celular)
+  // MEDITAÇÃO — toggle: marca / desfaz (marcou por engano).
   if (snap.doneToday){
     const done = !!snap.doneToday.meditacao, pend = pendingFor('meditacao', done);
-    const lbl = pend ? 'enviando… atualizando' : (done ? 'atenção feita hoje ✓' : 'marcar atenção do dia');
-    parts.push(card('Atenção / Meditação', icon('meditacao'), '',
-      `<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="meditacao" data-done="${done?1:0}" ${(pend||done)?'disabled':''}>${lbl}</button>`));
+    const lbl = pend ? 'enviando…' : (done ? 'atenção feita hoje ✓ · desfazer' : 'marcar atenção do dia');
+    daily.push({ key:'med', title:'Atenção / Meditação', ic:icon('meditacao'), badge:'',
+      body:`<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="meditacao" data-done="${done?1:0}" ${pend?'disabled':''}>${lbl}</button>`,
+      done, mini:'feito' });
   }
 
-  // MOBILIDADE (check-in de treino — toggle marcar⇄desfazer; aplica direto, funciona hub fechado)
+  // MOBILIDADE — toggle: marca / desfaz.
   if (snap.doneToday){
     const done = !!snap.doneToday.mobilidade, pend = pendingFor('mobilidade', done);
-    const lbl = pend ? 'enviando… atualizando' : (done ? 'treino feito hoje ✓' : 'marcar treino de mobilidade');
-    // só marcar (como a meditação): desfazer mobilidade é ambíguo (o MobiApp é a fonte real do treino)
-    parts.push(card('Mobilidade', icon('mobilidade'), '',
-      `<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="mobilidade" data-done="${done?1:0}" ${(pend||done)?'disabled':''}>${lbl}</button>`));
+    const lbl = pend ? 'enviando…' : (done ? 'treino feito hoje ✓ · desfazer' : 'marcar treino de mobilidade');
+    daily.push({ key:'mob', title:'Mobilidade', ic:icon('mobilidade'), badge:'',
+      body:`<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="mobilidade" data-done="${done?1:0}" ${pend?'disabled':''}>${lbl}</button>`,
+      done, mini:'treino feito' });
   }
 
-  // PÉLVICO — 3 sessões/dia (manhã/tarde/noite). Toca no slot pra marcar (arquivo próprio; MobiApp é a
-  // fonte real → só marcar). Aplica direto, funciona com o hub fechado. PELVICO-MOBILE-2026-07-15.
+  // PÉLVICO — 3 slots; toca pra marcar, toca de novo pra desfazer (só os marcados pelo celular).
   if (snap.pelvico){
-    const pv = snap.pelvico, slots = pv.slots || {};
+    const pv = snap.pelvico, slots = pv.slots || {}, done = (pv.done||0) >= (pv.total||3);
     const chips = PELVIC_SLOTS.map(([k, lbl]) => {
       const on = !!slots[k];
-      return `<button class="pv-slot ${on?'on':''}" data-ev="pelvico.slot" data-slot="${k}" ${on?'disabled':''}>${on?icon('check'):''}<span>${lbl}</span></button>`;
+      return `<button class="pv-slot ${on?'on':''}" data-ev="pelvico.slot" data-slot="${k}" data-done="${on?1:0}">${on?icon('check'):''}<span>${lbl}</span></button>`;
     }).join('');
-    parts.push(card('Pélvico', icon('pelvico'), `${pv.done||0}/${pv.total||3}`, `<div class="pv-slots">${chips}</div>`));
+    daily.push({ key:'pelv', title:'Pélvico', ic:icon('pelvico'), badge:`${pv.done||0}/${pv.total||3}`, body:`<div class="pv-slots">${chips}</div>`, done, mini:`${pv.done||0}/${pv.total||3}` });
   }
 
-  // LEITURA (lista os livros em andamento — toca no que leu; só marcar)
+  // LEITURA — toca no livro pra marcar; toca de novo pra desfazer. done = todos lidos hoje.
   if (snap.leitura && Array.isArray(snap.leitura.books) && snap.leitura.books.length){
-    const rows = snap.leitura.books.map(b => {
+    const books = snap.leitura.books;
+    const rows = books.map(b => {
       const key = 'leitura:' + b.id, pend = pendingFor(key, !!b.done);
-      const st = pend ? '…' : (b.done ? '✓ lido hoje' : 'li hoje');
-      return `<button class="book-btn ${pend?'wait':(b.done?'done':'')}" data-ev="leitura" data-book="${escapeHtml(b.id)}" data-done="${b.done?1:0}" ${(pend||b.done)?'disabled':''}>
+      const st = pend ? '…' : (b.done ? '✓ lido hoje · desfazer' : 'li hoje');
+      return `<button class="book-btn ${pend?'wait':(b.done?'done':'')}" data-ev="leitura" data-book="${escapeHtml(b.id)}" data-done="${b.done?1:0}" ${pend?'disabled':''}>
         <span class="book-title">${escapeHtml(b.title)}</span><span class="book-mark">${st}</span></button>`;
     }).join('');
-    parts.push(card('Leitura', icon('leitura'), '', `<div class="book-list">${rows}</div>`));
+    daily.push({ key:'leit', title:'Leitura', ic:icon('leitura'), badge:'', body:`<div class="book-list">${rows}</div>`, done: books.every(b => b.done), mini:'lido' });
   }
+
+  // ---- ordena e renderiza ----
+  const parts = [];
+  const pend = daily.filter(c => !c.done), doneCards = daily.filter(c => c.done);
+  pend.forEach(c => parts.push(card(c.title, c.ic, c.badge, c.body)));
+  if (doneCards.length && pend.length) parts.push(`<div class="cards-sep">concluído hoje</div>`);
+  doneCards.forEach(c => {
+    if (_cardExpanded[c.key]){
+      parts.push(`<div class="card fade-in"><div class="card-head"><div class="card-title"><span class="ic">${c.ic}</span>${c.title}</div>` +
+        `<button class="card-collapse" data-ev="card.collapse" data-key="${c.key}">minimizar ${icon('up')}</button></div>${c.body}</div>`);
+    } else {
+      parts.push(`<button class="card card-mini" data-ev="card.expand" data-key="${c.key}"><span class="ic">${c.ic}</span>` +
+        `<span class="mini-title">${c.title}</span><span class="mini-done">${c.mini} ${icon('check')}</span><span class="mini-chev">${icon('down')}</span></button>`);
+    }
+  });
+  // FINANCEIRO — ferramenta (nunca "conclui"): fixo no fim.
+  if (snap.financeiro) parts.push(card('Financeiro', icon('financeiro'), fmtMes(snap.financeiro.mes), finHomeBody(snap.financeiro)));
 
   $('cards').innerHTML = parts.join('');
 }
@@ -759,12 +771,14 @@ const onCardClick = async (e) => {
   // LOCAL (sem rede): tab de prioridades / mostrar-ocultar histórico / abrir editor
   if (btn.dataset.ptab){ _prioTab = btn.dataset.ptab; localStorage.setItem('companheiro.prioTab', _prioTab); if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'prio.hist'){ _showHist = !_showHist; if (_lastSnap) render(_lastSnap); return; }
+  if (ev === 'card.expand'){ _cardExpanded[btn.dataset.key] = true; if (_lastSnap) render(_lastSnap); return; }
+  if (ev === 'card.collapse'){ delete _cardExpanded[btn.dataset.key]; if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'day.open'){ openDayModal(); return; }
   if (ev === 'refl.open'){ openReflModal(); return; }
   if (ev === 'pelvico.slot'){
-    const slot = btn.dataset.slot;
-    optimisticPelvic(slot);
-    try{ await postEvent({ type:'pelvico.session', slot }); schedulePrioRefresh(); }
+    const slot = btn.dataset.slot, target = btn.dataset.done !== '1';   // toggle: marca / desfaz
+    optimisticPelvic(slot, target);
+    try{ await postEvent({ type:'pelvico.session', slot, done: target }); schedulePrioRefresh(); }
     catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
     return;
   }
@@ -812,11 +826,12 @@ const onCardClick = async (e) => {
     return;
   }
 
-  // ÁGUA: toca o sagrado + XP → aplica pelo widget quando o hub abre. fire-and-forget.
-  if (ev === 'agua.bottle'){
-    btn.disabled = true; btn.textContent = 'enviado ✓';
+  // ÁGUA: toca o sagrado + XP → aplica pelo widget quando o hub abre. fire-and-forget. (+1 e −1 desfazer)
+  if (ev === 'agua.bottle' || ev === 'agua.undo'){
+    const undo = ev === 'agua.undo';
+    btn.disabled = true; btn.textContent = undo ? 'desfazendo…' : 'enviado ✓';
     try{
-      await postEvent({ type:'agua.bottle' });
+      await postEvent(undo ? { type:'agua.bottle', undo:true } : { type:'agua.bottle' });
       [6, 14, 24, 34].forEach(sec => setTimeout(refresh, sec * 1000));
       setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 4000);
     }catch(err){ btn.disabled = false; btn.textContent = label; flashError(err.message || 'falha ao enviar'); }
@@ -828,13 +843,13 @@ const onCardClick = async (e) => {
     const routine = ev.split('.')[1];
     target = btn.dataset.done !== '1';
     key = ev; evt = { type: 'skincare.done', routine, done: target };
-  } else if (ev === 'meditacao'){                            // só marcar
-    if (btn.dataset.done === '1') return;
-    target = true; key = 'meditacao'; evt = { type: 'meditacao.done' };
-  } else if (ev === 'leitura'){                               // só marcar, por livro
-    if (btn.dataset.done === '1') return;
+  } else if (ev === 'meditacao'){                            // toggle (marca / desfaz)
+    target = btn.dataset.done !== '1';
+    key = 'meditacao'; evt = { type: 'meditacao.done', done: target };
+  } else if (ev === 'leitura'){                               // toggle por livro (marca / desfaz)
     const bookId = btn.dataset.book;
-    target = true; key = 'leitura:' + bookId; evt = { type: 'leitura.read', bookId };
+    target = btn.dataset.done !== '1';
+    key = 'leitura:' + bookId; evt = { type: 'leitura.read', bookId, done: target };
   } else if (ev === 'mobilidade'){                            // toggle (marca/desmarca)
     target = btn.dataset.done !== '1';
     key = 'mobilidade'; evt = { type: 'mobilidade.checkin', done: target };
