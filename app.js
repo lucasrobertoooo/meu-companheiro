@@ -381,8 +381,25 @@ function renderFinFull(){
   $('finFullBody').innerHTML = body;
 }
 
+const DAY_MOOD_EMOJI = { leve:'😊', normal:'😐', puxado:'😩' };
 function renderCards(snap){
   const parts = [];
+
+  // FECHAR O DIA — ritual de fim de dia (mood + frase). Toca o sagrado (+15 XP/streak) → aplica pelo
+  // widget quando o hub abre; fire-and-forget, deduped. MOBILE-DAYLOG-2026-07-15.
+  if (snap.daylog){
+    const dl = snap.daylog, closed = !!dl.closed, pend = pendingFor('daylog', closed);
+    const em = DAY_MOOD_EMOJI[dl.mood] || '';
+    let body;
+    if (pend && !closed){
+      body = `<button class="mark-btn wait" disabled>enviado ✓ · fecha quando o Mac abrir</button>`;
+    } else if (closed){
+      body = `<button class="mark-btn done" data-ev="day.open">dia fechado hoje ${em} · revisar</button>`;
+    } else {
+      body = `<div class="day-prompt">Como foi o seu dia?</div><button class="mark-btn" data-ev="day.open">fechar o dia</button>`;
+    }
+    parts.push(card('Fechar o dia', icon('moon'), '', body));
+  }
 
   // ÁGUA (com anel de %) + botão "+1 garrafa"
   if (snap.water){
@@ -568,6 +585,28 @@ function openSkinInfo(type, title){
 }
 function closeSkinInfo(){ $('skinInfoModal').hidden = true; }
 
+/* ---------- fechar o dia (modal: humor + frase). Sacro (+15 XP/streak) → fire-and-forget pelo hub ---------- */
+let _dayMood = null;
+function openDayModal(){
+  const dl = _lastSnap && _lastSnap.daylog;
+  _dayMood = (dl && dl.mood) || null;
+  $('dayNote').value = '';
+  [...document.querySelectorAll('#dayMoods .dmood')].forEach(b => b.classList.toggle('on', b.dataset.mood === _dayMood));
+  $('daySave').disabled = !_dayMood;
+  $('dayModal').hidden = false;
+}
+function closeDayModal(){ $('dayModal').hidden = true; }
+function saveDayModal(){
+  if (!_dayMood) return;
+  const wellDone = $('dayNote').value.trim();
+  closeDayModal();
+  _pending['daylog'] = true;              // pendente até o snapshot confirmar (hub aplica)
+  if (_lastSnap) render(_lastSnap);
+  postEvent({ type:'daylog.close', mood:_dayMood, wellDone })
+    .then(() => { [6, 14, 24, 34].forEach(s => setTimeout(refresh, s * 1000)); })
+    .catch(err => { delete _pending['daylog']; flashError(err.message || 'falha ao enviar'); if (_lastSnap) render(_lastSnap); });
+}
+
 /* ---------- editor de linha do financeiro (nova / editar / apagar) ---------- */
 let _finEditId = null;
 function finNewId(){ return 'm' + Date.now(); }   // id do celular = id real (mesmo nos 2 lados; sem temp-id)
@@ -629,6 +668,7 @@ const onCardClick = async (e) => {
   // LOCAL (sem rede): tab de prioridades / mostrar-ocultar histórico / abrir editor
   if (btn.dataset.ptab){ _prioTab = btn.dataset.ptab; localStorage.setItem('companheiro.prioTab', _prioTab); if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'prio.hist'){ _showHist = !_showHist; if (_lastSnap) render(_lastSnap); return; }
+  if (ev === 'day.open'){ openDayModal(); return; }
   if (ev === 'intent.edit'){ openEditor(Number(btn.dataset.id), btn.dataset.text || '', btn.dataset.note || ''); return; }
   if (ev === 'intent.new'){ openEditor(null, '', ''); return; }
 
@@ -733,6 +773,15 @@ $('finModal').addEventListener('click', e=>{ if (e.target === $('finModal')) clo
 $('finFullClose').addEventListener('click', closeFinFull);
 $('finPrev').addEventListener('click', ()=> finShiftMonth(-1));
 $('finNext').addEventListener('click', ()=> finShiftMonth(1));
+$('daySave').addEventListener('click', saveDayModal);
+$('dayCancel').addEventListener('click', closeDayModal);
+$('dayModal').addEventListener('click', e=>{ if (e.target === $('dayModal')) closeDayModal(); });
+$('dayMoods').addEventListener('click', e=>{
+  const b = e.target.closest('.dmood'); if (!b) return;
+  _dayMood = b.dataset.mood;
+  [...document.querySelectorAll('#dayMoods .dmood')].forEach(x => x.classList.toggle('on', x === b));
+  $('daySave').disabled = false;
+});
 // drag-and-drop de prioridades (pointer/touch)
 $('cards').addEventListener('pointerdown', prioDragStart);
 document.addEventListener('pointermove', prioDragMove);

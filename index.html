@@ -94,6 +94,23 @@
     </div>
   </div>
 
+  <!-- Fechar o dia (humor + frase) -->
+  <div class="modal-backdrop" id="dayModal" hidden>
+    <div class="modal">
+      <h3>Como foi o seu dia?</h3>
+      <div class="day-moods" id="dayMoods">
+        <button class="dmood" data-mood="leve"><span class="dmood-emoji">😊</span>leve</button>
+        <button class="dmood" data-mood="normal"><span class="dmood-emoji">😐</span>normal</button>
+        <button class="dmood" data-mood="puxado"><span class="dmood-emoji">😩</span>puxado</button>
+      </div>
+      <label>Uma frase (opcional) <textarea id="dayNote" rows="3" placeholder="o que sobrou de bom — ou o que pesou"></textarea></label>
+      <div class="modal-actions">
+        <button id="dayCancel" class="btn ghost">agora não</button>
+        <button id="daySave" class="btn" disabled>✓ encerrar dia</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Financeiro TELA CHEIA (navegação de meses + categorias + linhas) -->
   <div id="finFull" class="finfull" hidden>
     <header class="finfull-bar">

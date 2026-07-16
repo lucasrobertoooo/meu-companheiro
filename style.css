@@ -296,3 +296,11 @@ body.needcfg .onboard{display:block}
 #finModal .chk-line input{width:20px;height:20px}
 #finModal .modal-actions{gap:12px;margin-top:4px}
 #finModal .btn{font-size:15px;padding:12px 18px}
+
+/* ---------- Fechar o dia (MOBILE-DAYLOG-2026-07-15) ---------- */
+.day-prompt{font-size:13px;color:var(--ink-soft);margin-bottom:2px}
+.day-moods{display:flex;gap:8px;margin:2px 0 14px}
+.dmood{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:13px 6px;border-radius:12px;
+  border:2px solid var(--line);background:var(--paper-2);color:var(--ink-soft);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.dmood-emoji{font-size:24px;line-height:1}
+.dmood.on{border-color:var(--clay);background:var(--clay-soft);color:#f2b79e}
