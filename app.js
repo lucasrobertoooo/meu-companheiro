@@ -382,6 +382,14 @@ function renderFinFull(){
 }
 
 const DAY_MOOD_EMOJI = { leve:'😊', normal:'😐', puxado:'😩' };
+const PELVIC_SLOTS = [['morning','manhã'], ['afternoon','tarde'], ['evening','noite']];
+// otimista: marca um slot do pélvico no snapshot local + recomputa done
+function optimisticPelvic(slot){
+  const pv = _lastSnap && _lastSnap.pelvico; if (!pv) return;
+  pv.slots = pv.slots || {}; pv.slots[slot] = true;
+  pv.done = PELVIC_SLOTS.filter(([k]) => pv.slots[k]).length;
+  render(_lastSnap);
+}
 function renderCards(snap){
   const parts = [];
 
@@ -399,6 +407,16 @@ function renderCards(snap){
       body = `<div class="day-prompt">Como foi o seu dia?</div><button class="mark-btn" data-ev="day.open">fechar o dia</button>`;
     }
     parts.push(card('Fechar o dia', icon('moon'), '', body));
+  }
+
+  // REFLEXÃO DO DIA — a criatura pergunta, você responde (uma linha → +12 XP). Sacro → aplica pelo hub.
+  if (snap.reflexao && snap.reflexao.question){
+    const rf = snap.reflexao;
+    const q = `<div class="refl-q">${escapeHtml(rf.question)}</div>`;
+    const body = rf.answered
+      ? q + `<div class="refl-ans">${escapeHtml(rf.answer || '')}</div><button class="mark-btn done" data-ev="refl.open">respondido ✓ · editar</button>`
+      : q + `<button class="mark-btn" data-ev="refl.open">responder</button>`;
+    parts.push(card('Reflexão do dia', icon('meditacao'), '', body));
   }
 
   // ÁGUA (com anel de %) + botão "+1 garrafa"
@@ -446,6 +464,17 @@ function renderCards(snap){
     // só marcar (como a meditação): desfazer mobilidade é ambíguo (o MobiApp é a fonte real do treino)
     parts.push(card('Mobilidade', icon('mobilidade'), '',
       `<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="mobilidade" data-done="${done?1:0}" ${(pend||done)?'disabled':''}>${lbl}</button>`));
+  }
+
+  // PÉLVICO — 3 sessões/dia (manhã/tarde/noite). Toca no slot pra marcar (arquivo próprio; MobiApp é a
+  // fonte real → só marcar). Aplica direto, funciona com o hub fechado. PELVICO-MOBILE-2026-07-15.
+  if (snap.pelvico){
+    const pv = snap.pelvico, slots = pv.slots || {};
+    const chips = PELVIC_SLOTS.map(([k, lbl]) => {
+      const on = !!slots[k];
+      return `<button class="pv-slot ${on?'on':''}" data-ev="pelvico.slot" data-slot="${k}" ${on?'disabled':''}>${on?icon('check'):''}<span>${lbl}</span></button>`;
+    }).join('');
+    parts.push(card('Pélvico', icon('pelvico'), `${pv.done||0}/${pv.total||3}`, `<div class="pv-slots">${chips}</div>`));
   }
 
   // LEITURA (lista os livros em andamento — toca no que leu; só marcar)
@@ -591,6 +620,7 @@ function openDayModal(){
   const dl = _lastSnap && _lastSnap.daylog;
   _dayMood = (dl && dl.mood) || null;
   $('dayNote').value = '';
+  $('dayCap').value = '';
   [...document.querySelectorAll('#dayMoods .dmood')].forEach(b => b.classList.toggle('on', b.dataset.mood === _dayMood));
   $('daySave').disabled = !_dayMood;
   $('dayModal').hidden = false;
@@ -599,12 +629,32 @@ function closeDayModal(){ $('dayModal').hidden = true; }
 function saveDayModal(){
   if (!_dayMood) return;
   const wellDone = $('dayNote').value.trim();
+  const capText = $('dayCap').value.trim();
   closeDayModal();
   _pending['daylog'] = true;              // pendente até o snapshot confirmar (hub aplica)
   if (_lastSnap) render(_lastSnap);
-  postEvent({ type:'daylog.close', mood:_dayMood, wellDone })
+  postEvent({ type:'daylog.close', mood:_dayMood, wellDone, capText })
     .then(() => { [6, 14, 24, 34].forEach(s => setTimeout(refresh, s * 1000)); })
     .catch(err => { delete _pending['daylog']; flashError(err.message || 'falha ao enviar'); if (_lastSnap) render(_lastSnap); });
+}
+
+/* ---------- reflexão do dia (modal: pergunta + resposta). Sacro (+12 XP) → fire-and-forget pelo hub ---------- */
+function openReflModal(){
+  const rf = _lastSnap && _lastSnap.reflexao; if (!rf) return;
+  $('reflModalQ').textContent = rf.question || '';
+  $('reflInput').value = rf.answer || '';
+  $('reflModal').hidden = false;
+  setTimeout(() => { try{ $('reflInput').focus(); }catch(e){} }, 120);
+}
+function closeReflModal(){ $('reflModal').hidden = true; }
+function saveReflModal(){
+  const response = $('reflInput').value.trim();
+  if (!response){ flashError('escreve uma linha'); return; }
+  closeReflModal();
+  if (_lastSnap && _lastSnap.reflexao){ _lastSnap.reflexao.answer = response; _lastSnap.reflexao.answered = true; render(_lastSnap); }
+  postEvent({ type:'reflexao.answer', response })
+    .then(() => { [6, 14, 24, 34].forEach(s => setTimeout(refresh, s * 1000)); })
+    .catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
 }
 
 /* ---------- editor de linha do financeiro (nova / editar / apagar) ---------- */
@@ -669,6 +719,14 @@ const onCardClick = async (e) => {
   if (btn.dataset.ptab){ _prioTab = btn.dataset.ptab; localStorage.setItem('companheiro.prioTab', _prioTab); if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'prio.hist'){ _showHist = !_showHist; if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'day.open'){ openDayModal(); return; }
+  if (ev === 'refl.open'){ openReflModal(); return; }
+  if (ev === 'pelvico.slot'){
+    const slot = btn.dataset.slot;
+    optimisticPelvic(slot);
+    try{ await postEvent({ type:'pelvico.session', slot }); schedulePrioRefresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    return;
+  }
   if (ev === 'intent.edit'){ openEditor(Number(btn.dataset.id), btn.dataset.text || '', btn.dataset.note || ''); return; }
   if (ev === 'intent.new'){ openEditor(null, '', ''); return; }
 
@@ -782,6 +840,9 @@ $('dayMoods').addEventListener('click', e=>{
   [...document.querySelectorAll('#dayMoods .dmood')].forEach(x => x.classList.toggle('on', x === b));
   $('daySave').disabled = false;
 });
+$('reflSave').addEventListener('click', saveReflModal);
+$('reflCancel').addEventListener('click', closeReflModal);
+$('reflModal').addEventListener('click', e=>{ if (e.target === $('reflModal')) closeReflModal(); });
 // drag-and-drop de prioridades (pointer/touch)
 $('cards').addEventListener('pointerdown', prioDragStart);
 document.addEventListener('pointermove', prioDragMove);

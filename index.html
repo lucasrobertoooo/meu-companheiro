@@ -103,10 +103,24 @@
         <button class="dmood" data-mood="normal"><span class="dmood-emoji">😐</span>normal</button>
         <button class="dmood" data-mood="puxado"><span class="dmood-emoji">😩</span>puxado</button>
       </div>
-      <label>Uma frase (opcional) <textarea id="dayNote" rows="3" placeholder="o que sobrou de bom — ou o que pesou"></textarea></label>
+      <label>Uma frase (opcional) <textarea id="dayNote" rows="2" placeholder="o que sobrou de bom — ou o que pesou"></textarea></label>
+      <label>Uma boa notícia? (opcional · fica privado) <textarea id="dayCap" rows="2" placeholder="algo concreto que valeu hoje"></textarea></label>
       <div class="modal-actions">
         <button id="dayCancel" class="btn ghost">agora não</button>
         <button id="daySave" class="btn" disabled>✓ encerrar dia</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reflexão do dia (pergunta da criatura + resposta) -->
+  <div class="modal-backdrop" id="reflModal" hidden>
+    <div class="modal">
+      <h3>Reflexão do dia</h3>
+      <div class="refl-q" id="reflModalQ"></div>
+      <label>Sua resposta <textarea id="reflInput" rows="4" placeholder="responde numa linha — a criatura guarda pra você"></textarea></label>
+      <div class="modal-actions">
+        <button id="reflCancel" class="btn ghost">agora não</button>
+        <button id="reflSave" class="btn">guardar</button>
       </div>
     </div>
   </div>
