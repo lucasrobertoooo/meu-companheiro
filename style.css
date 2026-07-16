@@ -287,3 +287,12 @@ body.needcfg .onboard{display:block}
 .fin-rollover{margin-top:18px;text-align:center}
 .fin-empty{font-size:13px;color:var(--muted);margin-bottom:14px}
 .fin-rollover .fin-add{max-width:none}
+
+/* Modal do financeiro: fonte e alvos de toque maiores (fonte pequena dificultava clicar; 16px evita zoom do iOS) */
+#finModal h3{font-size:19px}
+#finModal label{font-size:14px;margin-bottom:14px}
+#finModal input,#finModal select,#finModal textarea{font-size:16px;padding:13px 14px}
+#finModal .chk-line{font-size:15px;gap:10px;margin-bottom:14px}
+#finModal .chk-line input{width:20px;height:20px}
+#finModal .modal-actions{gap:12px;margin-top:4px}
+#finModal .btn{font-size:15px;padding:12px 18px}
