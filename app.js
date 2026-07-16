@@ -541,6 +541,47 @@ function startLoop(){ if (_timer) clearInterval(_timer); refresh(); _timer = set
 function showError(msg){ $('cards').innerHTML = `<div class="state-msg err">${escapeHtml(msg)}</div>`; }
 function flashError(msg){ const f=$('freshness'); const old=f.textContent; f.textContent=msg; setTimeout(()=>{f.textContent=old;},3000); }
 
+/* ---------- push nativo (iOS 16.4+ · precisa do app instalado na tela inicial) ---------- */
+const VAPID_PUBLIC = 'BMxE9r6DrUygHVJkhr2sDXSyeguI7zzeDeunLkOgY2qZr7lS52logWdLOCblLdmuiFm6TweBneHldcQ_V4Wfhag';
+function urlB64ToUint8(b64){
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const s = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(s), arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+async function enablePush(){
+  const st = $('pushStatus');
+  const set = (cls, msg) => { if (st){ st.className = 'modal-status ' + cls; st.textContent = msg; } };
+  try{
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){
+      set('err', 'Sem suporte a push aqui. No iPhone: Compartilhar → Adicionar à Tela de Início, e abra pelo ícone.'); return;
+    }
+    const cfg = getCfg();
+    if (!cfg || !cfg.repo || !cfg.pat){ set('err', 'Conecte o token primeiro (acima).'); return; }
+    set('', 'pedindo permissão…');
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted'){ set('err', 'Permissão negada. Ative em Ajustes → Notificações → Companheiro.'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(VAPID_PUBLIC) });
+    const [owner, repo] = cfg.repo.split('/');
+    const path = 'push-subscription.json';
+    const content = btoa(unescape(encodeURIComponent(JSON.stringify({ subscription: sub.toJSON(), tz: 'America/Sao_Paulo', updated: todayStr() }, null, 2))));
+    let sha = null;
+    try{
+      const g = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=main`, { headers:{ Authorization:`Bearer ${cfg.pat}`, Accept:'application/vnd.github+json' }, cache:'no-store' });
+      if (g.ok){ sha = (await g.json()).sha; }
+    }catch(e){}
+    const put = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+      method:'PUT', headers:{ Authorization:`Bearer ${cfg.pat}`, Accept:'application/vnd.github+json' },
+      body: JSON.stringify({ message:'push subscription', content, branch:'main', sha }),
+    });
+    if (!put.ok){ set('err', 'Falha ao salvar inscrição (' + put.status + ').'); return; }
+    set('ok', 'Notificações ativadas ✓ — feche o app e peça um teste.');
+  }catch(err){ set('err', (err && err.message) || 'falhou'); }
+}
+
 /* ---------- modal de config ---------- */
 function openModal(){
   const c = getCfg() || {};
@@ -817,6 +858,7 @@ $('finFull').addEventListener('click', onCardClick);
 $('gear').addEventListener('click', openModal);
 $('cfgSave').addEventListener('click', saveCfg);
 $('cfgClear').addEventListener('click', ()=>{ clearCfg(); $('cfgPat').value=''; $('cfgStatus').className='modal-status'; $('cfgStatus').textContent='limpo'; });
+$('pushBtn').addEventListener('click', enablePush);
 $('modal').addEventListener('click', e=>{ if (e.target === $('modal')) closeModal(); });
 $('editSave').addEventListener('click', saveEditor);
 $('editCancel').addEventListener('click', closeEditor);
