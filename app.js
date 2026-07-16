@@ -76,7 +76,9 @@ async function fetchSnapshot(){
 
 /* ---------- escrita de evento (celular → inbox do repo) ---------- */
 function todayStr(){
-  // DAYCUT-2026-07-16 · dia lógico vira às 4h (== today() do widget). Eventos 00h-04h contam como o dia anterior.
+  // DAYSYNC-2026-07-16 · usa o dia LÓGICO do Mac (snap.date) como fonte ÚNICA — evita o celular e o Mac
+  // discordarem do "hoje" (corte 4h + cache do app causavam eventos no dia errado). Fallback: corte 4h local.
+  if (_lastSnap && _lastSnap.date) return _lastSnap.date;
   const d = new Date(Date.now() - 4*3600*1000);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
