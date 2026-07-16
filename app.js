@@ -76,7 +76,8 @@ async function fetchSnapshot(){
 
 /* ---------- escrita de evento (celular → inbox do repo) ---------- */
 function todayStr(){
-  const d = new Date();
+  // DAYCUT-2026-07-16 · dia lógico vira às 4h (== today() do widget). Eventos 00h-04h contam como o dia anterior.
+  const d = new Date(Date.now() - 4*3600*1000);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 function uuid(){
