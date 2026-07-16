@@ -36,6 +36,7 @@ const ICONS = {
   grip:        _svg('<circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.4" fill="currentColor" stroke="none"/>'),
   info:        _svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5h.01"/>'),
   financeiro:  _svg('<rect x="2.5" y="6" width="19" height="13" rx="2.2"/><path d="M2.5 10.5h19"/><path d="M15.5 15h3"/>'),
+  remedios:    _svg('<rect x="3" y="8.5" width="18" height="7" rx="3.5"/><path d="M12 8.5v7"/>'),
 };
 const icon = n => ICONS[n] || '';
 
@@ -45,6 +46,7 @@ const TODAY_MODULES = [
   { key:'meditacao',  lbl:'Meditação' },
   { key:'leitura',    lbl:'Leitura' },
   { key:'mobilidade', lbl:'Mobilidade' },
+  { key:'remedios',   lbl:'Remédios' },
 ];
 
 /* ---------- config ---------- */
@@ -464,6 +466,15 @@ function renderCards(snap){
       done, mini:'treino feito' });
   }
 
+  // REMÉDIOS — toggle "tomei hoje" (complementa o push das 13h30). REMEDIOS-2026-07-16.
+  if (snap.doneToday){
+    const done = !!snap.doneToday.remedios, pend = pendingFor('remedios', done);
+    const lbl = pend ? 'enviando…' : (done ? 'remédio tomado hoje ✓ · desfazer' : 'marcar remédio de hoje');
+    daily.push({ key:'remedios', title:'Remédios', ic:icon('remedios'), badge:'',
+      body:`<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="remedios" data-done="${done?1:0}" ${pend?'disabled':''}>${lbl}</button>`,
+      done, mini:'tomado' });
+  }
+
   // PÉLVICO — 3 slots; toca pra marcar, toca de novo pra desfazer (só os marcados pelo celular).
   if (snap.pelvico){
     const pv = snap.pelvico, slots = pv.slots || {}, done = (pv.done||0) >= (pv.total||3);
@@ -486,9 +497,12 @@ function renderCards(snap){
     daily.push({ key:'leit', title:'Leitura', ic:icon('leitura'), badge:'', body:`<div class="book-list">${rows}</div>`, done: books.every(b => b.done), mini:'lido' });
   }
 
-  // ---- ordena e renderiza ----
+  // ---- ordena e renderiza ---- (Fechar o dia/Reflexão são de fim de dia → vão pro fim; ORDEM-2026-07-16)
+  const CARD_ORDER = { agua:1, remedios:2, prio:3, skin:4, med:5, mob:6, pelv:7, leit:8, reflexao:9, daylog:10 };
+  const ord = c => (CARD_ORDER[c.key] || 50);
   const parts = [];
-  const pend = daily.filter(c => !c.done), doneCards = daily.filter(c => c.done);
+  const pend = daily.filter(c => !c.done).sort((a,b) => ord(a)-ord(b));
+  const doneCards = daily.filter(c => c.done).sort((a,b) => ord(a)-ord(b));
   pend.forEach(c => parts.push(card(c.title, c.ic, c.badge, c.body)));
   if (doneCards.length && pend.length) parts.push(`<div class="cards-sep">concluído hoje</div>`);
   doneCards.forEach(c => {
@@ -856,6 +870,9 @@ const onCardClick = async (e) => {
   } else if (ev === 'mobilidade'){                            // toggle (marca/desmarca)
     target = btn.dataset.done !== '1';
     key = 'mobilidade'; evt = { type: 'mobilidade.checkin', done: target };
+  } else if (ev === 'remedios'){                              // toggle "tomei hoje"
+    target = btn.dataset.done !== '1';
+    key = 'remedios'; evt = { type: 'remedios.taken', done: target };
   } else return;
 
   btn.disabled = true; btn.textContent = target ? 'enviando…' : 'desfazendo…';
