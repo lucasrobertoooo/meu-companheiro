@@ -288,6 +288,15 @@ try{ _finOpen = JSON.parse(localStorage.getItem('companheiro.finOpen')) || {}; }
 function saveFinOpen(){ localStorage.setItem('companheiro.finOpen', JSON.stringify(_finOpen)); }
 let _finMonth = null;   // mês em foco na tela cheia (null = mês corrente do snapshot)
 function fmtBRL(v){ return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
+// PLUGGY-FRESH · "há X" a partir de um timestamp unix (seg). Usado no indicador de frescor dos bancos.
+function agoStr(ts){
+  if (!ts) return 'nunca';
+  const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
+  if (s < 90) return 'agora';
+  const m = Math.floor(s/60); if (m < 90) return `há ${m} min`;
+  const h = Math.floor(m/60);  if (h < 36) return `há ${h}h`;
+  return `há ${Math.floor(h/24)}d`;
+}
 function fmtMes(mes){ const p = String(mes||'').split('-'); return (_MES_ABBR[(+p[1])-1] || p[1] || '') + '/' + (p[0]||''); }
 function monthShift(mes, d){ let [y,m] = String(mes).split('-').map(Number); m += d; while(m>12){m-=12;y++;} while(m<1){m+=12;y--;} return y + '-' + String(m).padStart(2,'0'); }
 function rowsOfMonth(rows, mes){ return (rows||[]).filter(r => r.mes === mes); }
@@ -375,7 +384,11 @@ function renderFinFull(){
   $('finMonthLbl').textContent = fmtMes(mes) + (mes === fin.mes ? ' · atual' : '');
   const rows = rowsOfMonth(fin.rows, mes);
   const manual = rows.filter(r => !r.pid);   // linhas do Pluggy têm pid; manuais não
-  let body = finSumHtml(summaryOf(rows));
+  // PLUGGY-FRESH · faixa de frescor: quando os bancos foram sincronizados + botão "puxar agora"
+  const syncedAt = _lastSnap.pluggy && _lastSnap.pluggy.syncedAt;
+  let body = `<div class="fin-fresh"><span class="fin-fresh-lbl">🔄 bancos atualizados ${agoStr(syncedAt)}</span>` +
+             `<button class="fin-refresh" data-ev="pluggy.refresh">puxar agora</button></div>`;
+  body += finSumHtml(summaryOf(rows));
   if (rows.length) body += finCatsHtml(rows);
   // Sem linhas MANUAIS (o mês pode já ter só os cartões do Pluggy) → oferece copiar a estrutura.
   // Copia só o manual do mês anterior (Fixo/Variável/Receber…); os cartões o Pluggy já mantém.
@@ -866,6 +879,12 @@ const onCardClick = async (e) => {
   // FINANCEIRO (local, aplica direto — funciona com o hub fechado)
   if (ev === 'fin.full'){ openFinFull(); return; }                                    // abre a tela cheia
   if (ev === 'ext.acc'){ const i = btn.dataset.i; _extratoOpen[i] = !_extratoOpen[i]; renderExtrato(); return; }
+  if (ev === 'pluggy.refresh'){        // pede um sync do Pluggy no Mac + re-busca (pega o snapshot fresco)
+    btn.disabled = true; btn.textContent = 'puxando…';
+    try { await postEvent({ type:'pluggy.sync' }); } catch(err){ flashError(err.message || 'falha ao pedir'); }
+    refresh(); [8, 16, 26, 40].forEach(s => setTimeout(refresh, s*1000));
+    return;
+  }
   if (ev === 'fin.cat'){ const c = btn.dataset.cat; _finOpen[c] = !_finOpen[c]; saveFinOpen(); if (!$('finFull').hidden) renderFinFull(); else if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'fin.edit'){ openFinEditor(btn.dataset.id); return; }
   if (ev === 'fin.new'){ openFinEditor(null, btn.dataset.cat); return; }
