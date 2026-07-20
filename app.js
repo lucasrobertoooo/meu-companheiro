@@ -341,6 +341,7 @@ function finCatsHtml(rows){
     if (!open) return `<div class="fin-cat">${h}</div>`;
     const list = crows.length ? crows.map(r => {
       const badges = [];
+      if (r.origem === 'Pluggy') badges.push(`<span class="fin-bdg plug" title="sincronizado do banco (Pluggy) — atualiza sozinho">🔗</span>`);
       if (r.venc)  badges.push(`<span class="fin-bdg" title="vence dia ${r.venc}">d${r.venc}</span>`);
       if (r.split) badges.push(`<span class="fin-bdg split" title="dividir com a esposa">÷</span>`);
       const sc = 's-' + String(r.status||'Previsto').toLowerCase();
