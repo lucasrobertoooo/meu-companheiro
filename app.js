@@ -368,15 +368,31 @@ function finCatsHtml(rows){
   return `<div class="fin-cats">${cats}</div>`;
 }
 
+/* ---------- trava de scroll do fundo p/ os overlays (iOS PWA: senão o toque "puxa" a home) ---------- */
+let _scrollLockY = 0;
+function syncScrollLock(){
+  const anyOpen = !$('finFull').hidden || !$('extratoFull').hidden;
+  const locked = document.body.classList.contains('finfull-on');
+  if (anyOpen && !locked){
+    _scrollLockY = window.scrollY || 0;
+    document.body.style.top = `-${_scrollLockY}px`;
+    document.body.classList.add('finfull-on');
+  } else if (!anyOpen && locked){
+    document.body.classList.remove('finfull-on');
+    document.body.style.top = '';
+    window.scrollTo(0, _scrollLockY);
+  }
+}
+
 /* ---------- financeiro TELA CHEIA (overlay #finFull) ---------- */
 function openFinFull(){
   const fin = _lastSnap && _lastSnap.financeiro; if (!fin) return;
   _finMonth = _finMonth || fin.mes;
   renderFinFull();
   $('finFull').hidden = false;
-  document.body.classList.add('finfull-on');
+  syncScrollLock();
 }
-function closeFinFull(){ $('finFull').hidden = true; document.body.classList.remove('finfull-on'); }
+function closeFinFull(){ $('finFull').hidden = true; syncScrollLock(); }
 function finShiftMonth(d){ const fin = _lastSnap && _lastSnap.financeiro; if (!fin) return; _finMonth = monthShift(_finMonth || fin.mes, d); renderFinFull(); }
 function renderFinFull(){
   const fin = _lastSnap && _lastSnap.financeiro; if (!fin) return;
@@ -406,8 +422,8 @@ function renderFinFull(){
 
 /* ---------- EXTRATO read-only (dados reais via Pluggy) · overlay #extratoFull ---------- */
 let _extratoOpen = {};
-function openExtrato(){ renderExtrato(); $('extratoFull').hidden = false; document.body.classList.add('finfull-on'); }
-function closeExtrato(){ $('extratoFull').hidden = true; document.body.classList.remove('finfull-on'); }
+function openExtrato(){ renderExtrato(); $('extratoFull').hidden = false; syncScrollLock(); }
+function closeExtrato(){ $('extratoFull').hidden = true; syncScrollLock(); }
 function renderExtrato(){
   const ex = _lastSnap && _lastSnap.extrato;
   const when = $('extratoWhen');
