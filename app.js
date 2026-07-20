@@ -288,9 +288,11 @@ try{ _finOpen = JSON.parse(localStorage.getItem('companheiro.finOpen')) || {}; }
 function saveFinOpen(){ localStorage.setItem('companheiro.finOpen', JSON.stringify(_finOpen)); }
 let _finMonth = null;   // mês em foco na tela cheia (null = mês corrente do snapshot)
 function fmtBRL(v){ return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
-// PLUGGY-FRESH · "há X" a partir de um timestamp unix (seg). Usado no indicador de frescor dos bancos.
-function agoStr(ts){
-  if (!ts) return 'nunca';
+// PLUGGY-FRESH · "há X" a partir de um ISO (string) ou unix ts. Frescor REAL do dado bancário.
+function agoStr(v){
+  if (!v) return 'nunca';
+  const ts = (typeof v === 'string') ? Math.floor(Date.parse(v)/1000) : v;
+  if (!ts || isNaN(ts)) return 'nunca';
   const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
   if (s < 90) return 'agora';
   const m = Math.floor(s/60); if (m < 90) return `há ${m} min`;
@@ -401,8 +403,8 @@ function renderFinFull(){
   const rows = rowsOfMonth(fin.rows, mes);
   const manual = rows.filter(r => !r.pid);   // linhas do Pluggy têm pid; manuais não
   // PLUGGY-FRESH · faixa de frescor: quando os bancos foram sincronizados + botão "puxar agora"
-  const syncedAt = _lastSnap.pluggy && _lastSnap.pluggy.syncedAt;
-  let body = `<div class="fin-fresh"><span class="fin-fresh-lbl">🔄 bancos atualizados ${agoStr(syncedAt)}</span>` +
+  const dataAsOf = _lastSnap.pluggy && _lastSnap.pluggy.dataAsOf;
+  let body = `<div class="fin-fresh"><span class="fin-fresh-lbl">🔄 bancos atualizados ${agoStr(dataAsOf)}</span>` +
              `<button class="fin-refresh" data-ev="pluggy.refresh">puxar agora</button></div>`;
   body += finSumHtml(summaryOf(rows));
   if (rows.length) body += finCatsHtml(rows);

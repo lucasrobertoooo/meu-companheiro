@@ -1,7 +1,7 @@
 // Service worker — cacheia a CASCA do app (offline). NÃO cacheia os DADOS
 // (snapshot.json / GitHub API) — esses são sempre rede; o app.js guarda o último
 // snapshot em localStorage pra exibir offline.
-const CACHE = 'companheiro-shell-v10';
+const CACHE = 'companheiro-shell-v11';
 const SHELL = [
   './', './index.html', './style.css', './app.js', './creature-art.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png',
