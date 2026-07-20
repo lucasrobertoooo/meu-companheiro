@@ -249,7 +249,7 @@ function prioDragEnd(){
   const { item, list, id, moved } = _drag;
   item.classList.remove('dragging');
   _drag = null;
-  setTimeout(() => { _dragging = false; }, 60);
+  setTimeout(() => { _dragging = false; }, 350);   // cobre o ghost-click do iOS após soltar o arraste
   if (!moved) return;
   const dom = [...list.querySelectorAll('.prio-item')];
   const idx = dom.findIndex(x => Number(x.dataset.id) === id);
@@ -874,6 +874,11 @@ function deleteFinRow(){
 
 /* ---------- ações (delegado; usado na home #cards E na tela cheia #finFull) ---------- */
 const onCardClick = async (e) => {
+  // ANTI-MARCAÇÃO-FANTASMA · (1) ignora o "ghost click" que o iOS dispara ao soltar um arraste
+  // (reordenar prioridade podia marcar uma tarefa sem querer); (2) se algum modal está aberto, não
+  // deixa o clique "vazar" pros cards atrás. FIX-2026-07-20.
+  if (_dragging) return;
+  if ([...document.querySelectorAll('.modal-backdrop')].some(m => !m.hidden)) return;
   const btn = e.target.closest('[data-ev],[data-ptab]');
   if (!btn || btn.disabled) return;
   const ev = btn.dataset.ev, label = btn.textContent;
