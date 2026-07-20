@@ -374,15 +374,19 @@ function renderFinFull(){
   const mes = _finMonth || fin.mes;
   $('finMonthLbl').textContent = fmtMes(mes) + (mes === fin.mes ? ' · atual' : '');
   const rows = rowsOfMonth(fin.rows, mes);
+  const manual = rows.filter(r => !r.pid);   // linhas do Pluggy têm pid; manuais não
   let body = finSumHtml(summaryOf(rows));
-  if (rows.length === 0){
-    const prev = monthShift(mes, -1), prevN = rowsOfMonth(fin.rows, prev).length;
-    body += `<div class="fin-rollover"><p class="fin-empty">Nenhuma linha em ${fmtMes(mes)}.</p>` +
+  if (rows.length) body += finCatsHtml(rows);
+  // Sem linhas MANUAIS (o mês pode já ter só os cartões do Pluggy) → oferece copiar a estrutura.
+  // Copia só o manual do mês anterior (Fixo/Variável/Receber…); os cartões o Pluggy já mantém.
+  if (manual.length === 0){
+    const prev = monthShift(mes, -1);
+    const prevN = rowsOfMonth(fin.rows, prev).filter(r => !r.pid).length;
+    body += `<div class="fin-rollover">` +
+      (rows.length ? '' : `<p class="fin-empty">Nenhuma linha em ${fmtMes(mes)}.</p>`) +
       (prevN ? `<button class="mark-btn" data-ev="fin.rollover" data-mes="${mes}">copiar estrutura de ${fmtMes(prev)} (${prevN} linhas)</button>`
              : `<button class="fin-add" data-ev="fin.new" data-cat="Fixo">${icon('plus')} adicionar a primeira linha</button>`) +
       `</div>`;
-  } else {
-    body += finCatsHtml(rows);
   }
   $('finFullBody').innerHTML = body;
 }
