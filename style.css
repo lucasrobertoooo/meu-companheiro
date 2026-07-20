@@ -288,6 +288,20 @@ body.needcfg .onboard{display:block}
 .fin-empty{font-size:13px;color:var(--muted);margin-bottom:14px}
 .fin-rollover .fin-add{max-width:none}
 
+/* Extrato read-only (Pluggy) */
+.finfull-extrato{background:var(--paper);border:1px solid var(--line);color:var(--ink-soft);font-family:inherit;
+  font-size:13px;font-weight:600;border-radius:9px;padding:6px 11px;cursor:pointer;white-space:nowrap}
+.finfull-extrato:active{background:var(--paper-2)}
+.extrato-when{font-size:11px;color:var(--muted);flex:1;text-align:right}
+.ext-row{display:flex;align-items:baseline;gap:9px;background:var(--paper-2);border:1px solid var(--line);
+  border-radius:10px;padding:9px 11px}
+.ext-date{flex:none;width:42px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ext-desc{flex:1;font-size:13px;color:var(--ink-soft);line-height:1.35;word-break:break-word}
+.ext-catg{display:block;font-size:10.5px;color:var(--muted);font-style:normal;margin-top:1px}
+.ext-val{flex:none;font-size:13.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.ext-val.out{color:#e09a86}
+.ext-val.in{color:var(--sage)}
+
 /* Modal do financeiro: fonte e alvos de toque maiores (fonte pequena dificultava clicar; 16px evita zoom do iOS) */
 #finModal h3{font-size:19px}
 #finModal label{font-size:14px;margin-bottom:14px}

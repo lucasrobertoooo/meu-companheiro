@@ -387,6 +387,41 @@ function renderFinFull(){
   $('finFullBody').innerHTML = body;
 }
 
+/* ---------- EXTRATO read-only (dados reais via Pluggy) · overlay #extratoFull ---------- */
+let _extratoOpen = {};
+function openExtrato(){ renderExtrato(); $('extratoFull').hidden = false; document.body.classList.add('finfull-on'); }
+function closeExtrato(){ $('extratoFull').hidden = true; document.body.classList.remove('finfull-on'); }
+function renderExtrato(){
+  const ex = _lastSnap && _lastSnap.extrato;
+  const when = $('extratoWhen');
+  if (!ex || !Array.isArray(ex.accounts) || !ex.accounts.length){
+    $('extratoBody').innerHTML = `<div class="todo-empty">Sem extrato ainda — sincroniza no Mac (Pluggy).</div>`;
+    if (when) when.textContent = '';
+    return;
+  }
+  if (when) when.textContent = ex.iso ? ('atualizado ' + ex.iso) : '';
+  const fmtDay = d => { const p = String(d).split('-'); return p.length === 3 ? (p[2] + '/' + p[1]) : d; };
+  const noR$ = v => fmtBRL(Math.abs(v)).replace('R$ ', '');
+  $('extratoBody').innerHTML = ex.accounts.map((a, i) => {
+    const open = !!_extratoOpen[i];
+    const txs = a.txs || [];
+    const outSum = txs.reduce((s, t) => s + (t.v < 0 ? -t.v : 0), 0);
+    const head = `<button class="fin-cathead" data-ev="ext.acc" data-i="${i}">
+      <span class="fin-catname">${a.cat === 'Cartão' ? '💳' : '🏦'} ${escapeHtml(a.label)}</span>
+      <span class="fin-catcount">${txs.length}</span>
+      <span class="fin-catsub">saiu ${fmtBRL(outSum)}</span>
+      <span class="fin-catchev">${icon(open ? 'up' : 'down')}</span></button>`;
+    if (!open) return `<div class="fin-cat">${head}</div>`;
+    const list = txs.length ? txs.map(t => `
+      <div class="ext-row">
+        <span class="ext-date">${fmtDay(t.d)}</span>
+        <span class="ext-desc">${escapeHtml(t.t || '')}${t.c ? `<em class="ext-catg">${escapeHtml(t.c)}</em>` : ''}</span>
+        <span class="ext-val ${t.v < 0 ? 'out' : 'in'}">${t.v < 0 ? '−' : '+'}${noR$(t.v)}</span>
+      </div>`).join('') : `<div class="todo-empty">sem lançamentos recentes</div>`;
+    return `<div class="fin-cat">${head}<div class="fin-rows">${list}</div></div>`;
+  }).join('');
+}
+
 const DAY_MOOD_EMOJI = { leve:'😊', normal:'😐', puxado:'😩' };
 const PELVIC_SLOTS = [['morning','manhã'], ['afternoon','tarde'], ['evening','noite']];
 let _cardExpanded = {};   // cards concluídos que o Lucas expandiu (default = minimizado; não persiste)
@@ -539,6 +574,7 @@ function render(snap){
   renderToday(snap);
   renderCards(snap);
   if (!$('finFull').hidden) renderFinFull();   // mantém a tela cheia do financeiro em sincronia
+  if (!$('extratoFull').hidden) renderExtrato();
 }
 
 /* ---------- loop ---------- */
@@ -825,6 +861,7 @@ const onCardClick = async (e) => {
 
   // FINANCEIRO (local, aplica direto — funciona com o hub fechado)
   if (ev === 'fin.full'){ openFinFull(); return; }                                    // abre a tela cheia
+  if (ev === 'ext.acc'){ const i = btn.dataset.i; _extratoOpen[i] = !_extratoOpen[i]; renderExtrato(); return; }
   if (ev === 'fin.cat'){ const c = btn.dataset.cat; _finOpen[c] = !_finOpen[c]; saveFinOpen(); if (!$('finFull').hidden) renderFinFull(); else if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'fin.edit'){ openFinEditor(btn.dataset.id); return; }
   if (ev === 'fin.new'){ openFinEditor(null, btn.dataset.cat); return; }
@@ -889,6 +926,7 @@ const onCardClick = async (e) => {
 };
 $('cards').addEventListener('click', onCardClick);
 $('finFull').addEventListener('click', onCardClick);
+$('extratoFull').addEventListener('click', onCardClick);
 
 /* ---------- boot ---------- */
 $('gear').addEventListener('click', openModal);
@@ -909,6 +947,8 @@ $('finModal').addEventListener('click', e=>{ if (e.target === $('finModal')) clo
 $('finFullClose').addEventListener('click', closeFinFull);
 $('finPrev').addEventListener('click', ()=> finShiftMonth(-1));
 $('finNext').addEventListener('click', ()=> finShiftMonth(1));
+$('finExtratoBtn').addEventListener('click', openExtrato);
+$('extratoClose').addEventListener('click', closeExtrato);
 $('daySave').addEventListener('click', saveDayModal);
 $('dayCancel').addEventListener('click', closeDayModal);
 $('dayModal').addEventListener('click', e=>{ if (e.target === $('dayModal')) closeDayModal(); });

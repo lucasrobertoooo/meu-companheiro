@@ -140,8 +140,19 @@
         <span id="finMonthLbl" class="finfull-month">—</span>
         <button id="finNext" class="finfull-navbtn" aria-label="próximo mês">›</button>
       </div>
+      <button id="finExtratoBtn" class="finfull-extrato" aria-label="extrato">📄 Extrato</button>
     </header>
     <div id="finFullBody" class="finfull-body"></div>
+  </div>
+
+  <!-- Extrato read-only (dados reais do banco via Pluggy) · PLUGGY-2026-07-19 -->
+  <div id="extratoFull" class="finfull" hidden>
+    <header class="finfull-bar">
+      <button id="extratoClose" class="finfull-close" aria-label="voltar">‹ voltar</button>
+      <span class="finfull-month">Extrato</span>
+      <span id="extratoWhen" class="extrato-when"></span>
+    </header>
+    <div id="extratoBody" class="finfull-body"></div>
   </div>
 
   <!-- Editor de linha do financeiro (nova / editar / apagar) -->
