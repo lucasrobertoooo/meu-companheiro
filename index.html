@@ -187,6 +187,22 @@
     </div>
   </div>
 
+  <!-- Reconectar banco (força a Pluggy a puxar dados novos) -->
+  <div class="modal-backdrop" id="reconnectModal" hidden>
+    <div class="modal">
+      <h3>Reconectar banco</h3>
+      <p class="reconnect-hint">Força a Pluggy a puxar os dados novos agora (sem esperar o ciclo de 24h). O login é você que faz, direto no banco.</p>
+      <label>Banco
+        <select id="reconnectBank"></select>
+      </label>
+      <div id="reconnectStatus" class="reconnect-status"></div>
+      <div class="modal-actions">
+        <button id="reconnectCancel" class="btn ghost">Fechar</button>
+        <button id="reconnectGo" class="btn">Gerar link</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="./app.js"></script>
 </body>
 </html>

@@ -76,6 +76,20 @@ async function fetchSnapshot(){
   return r.json();
 }
 
+// PLUGGY-RECONNECT · lê um arquivo qualquer do repo (ex.: reconnect.json com o connect_token). Null se não achar.
+async function fetchRepoFile(path){
+  const cfg = getCfg();
+  if (cfg && cfg.repo && cfg.pat){
+    const [owner, repo] = cfg.repo.split('/');
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=main`;
+    try {
+      const r = await fetch(url, { headers:{ Authorization:`Bearer ${cfg.pat}`, Accept:'application/vnd.github.raw+json' }, cache:'no-store' });
+      return r.ok ? JSON.parse(await r.text()) : null;
+    } catch { return null; }
+  }
+  try { const r = await fetch('./' + path, { cache:'no-store' }); return r.ok ? r.json() : null; } catch { return null; }
+}
+
 /* ---------- escrita de evento (celular → inbox do repo) ---------- */
 function todayStr(){
   // DAYSYNC-2026-07-16 · usa o dia LÓGICO do Mac (snap.date) como fonte ÚNICA — evita o celular e o Mac
@@ -404,8 +418,11 @@ function renderFinFull(){
   const manual = rows.filter(r => !r.pid);   // linhas do Pluggy têm pid; manuais não
   // PLUGGY-FRESH · faixa de frescor: quando os bancos foram sincronizados + botão "puxar agora"
   const dataAsOf = _lastSnap.pluggy && _lastSnap.pluggy.dataAsOf;
+  const hasBanks = _lastSnap.pluggy && Array.isArray(_lastSnap.pluggy.banks) && _lastSnap.pluggy.banks.length;
   let body = `<div class="fin-fresh"><span class="fin-fresh-lbl">🔄 bancos atualizados ${agoStr(dataAsOf)}</span>` +
-             `<button class="fin-refresh" data-ev="pluggy.refresh">puxar agora</button></div>`;
+             `<span class="fin-fresh-acts"><button class="fin-refresh" data-ev="pluggy.refresh">puxar agora</button>` +
+             (hasBanks ? `<button class="fin-refresh" data-ev="pluggy.reconnectOpen">reconectar</button>` : '') +
+             `</span></div>`;
   body += finSumHtml(summaryOf(rows));
   if (rows.length) body += finCatsHtml(rows);
   // Sem linhas MANUAIS (o mês pode já ter só os cartões do Pluggy) → oferece copiar a estrutura.
@@ -426,6 +443,42 @@ function renderFinFull(){
 let _extratoOpen = {};
 function openExtrato(){ renderExtrato(); $('extratoFull').hidden = false; syncScrollLock(); }
 function closeExtrato(){ $('extratoFull').hidden = true; syncScrollLock(); }
+
+/* ---------- reconectar banco (força o Pluggy a puxar dados novos) · modal #reconnectModal ---------- */
+function openReconnectModal(){
+  const banks = (_lastSnap && _lastSnap.pluggy && _lastSnap.pluggy.banks) || [];
+  $('reconnectBank').innerHTML = banks.map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
+  $('reconnectStatus').innerHTML = '';
+  const go = $('reconnectGo'); go.disabled = false; go.style.display = ''; go.textContent = 'Gerar link';
+  $('reconnectModal').hidden = false;
+}
+function closeReconnectModal(){ $('reconnectModal').hidden = true; }
+async function reconnectGenLink(){
+  const sel = $('reconnectBank'), itemId = sel.value;
+  const name = (sel.options[sel.selectedIndex] || {}).text || '';
+  if (!itemId) return;
+  const go = $('reconnectGo'), st = $('reconnectStatus');
+  go.disabled = true; go.textContent = 'gerando…'; st.textContent = 'gerando link de reconexão…';
+  const since = Math.floor(Date.now()/1000);
+  try { await postEvent({ type:'pluggy.reqtoken', itemId }); }
+  catch(e){ st.textContent = 'falha ao pedir: ' + (e.message||''); go.disabled = false; go.textContent = 'Gerar link'; return; }
+  let tries = 0;
+  const poll = async () => {
+    tries++;
+    const d = await fetchRepoFile('reconnect.json');
+    if (d && d.itemId === itemId && d.token && (d.ts||0) >= since - 3){
+      const url = `reconnect.html?token=${encodeURIComponent(d.token)}&item=${encodeURIComponent(itemId)}&name=${encodeURIComponent(name)}`;
+      st.innerHTML = `<a href="${url}" target="_blank" rel="noopener">🔗 abrir reconexão de ${escapeHtml(name)} →</a>` +
+                     `<br><small>abre no navegador; faça o login e depois volte e toque “puxar agora”.</small>`;
+      go.style.display = 'none';
+      [35, 70, 110].forEach(s => setTimeout(refresh, s*1000));
+      return;
+    }
+    if (tries < 14) setTimeout(poll, 3000);
+    else { st.textContent = 'demorou pra gerar o link — tenta de novo.'; go.disabled = false; go.textContent = 'Gerar link'; }
+  };
+  setTimeout(poll, 3000);
+}
 function renderExtrato(){
   const ex = _lastSnap && _lastSnap.extrato;
   const when = $('extratoWhen');
@@ -903,6 +956,7 @@ const onCardClick = async (e) => {
     refresh(); [8, 16, 26, 40].forEach(s => setTimeout(refresh, s*1000));
     return;
   }
+  if (ev === 'pluggy.reconnectOpen'){ openReconnectModal(); return; }
   if (ev === 'fin.cat'){ const c = btn.dataset.cat; _finOpen[c] = !_finOpen[c]; saveFinOpen(); if (!$('finFull').hidden) renderFinFull(); else if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'fin.edit'){ openFinEditor(btn.dataset.id); return; }
   if (ev === 'fin.new'){ openFinEditor(null, btn.dataset.cat); return; }
@@ -985,6 +1039,9 @@ $('finSave').addEventListener('click', saveFinEditor);
 $('finCancel').addEventListener('click', closeFinEditor);
 $('finDelete').addEventListener('click', deleteFinRow);
 $('finModal').addEventListener('click', e=>{ if (e.target === $('finModal')) closeFinEditor(); });
+$('reconnectGo').addEventListener('click', reconnectGenLink);
+$('reconnectCancel').addEventListener('click', closeReconnectModal);
+$('reconnectModal').addEventListener('click', e => { if (e.target === $('reconnectModal')) closeReconnectModal(); });
 $('finFullClose').addEventListener('click', closeFinFull);
 $('finPrev').addEventListener('click', ()=> finShiftMonth(-1));
 $('finNext').addEventListener('click', ()=> finShiftMonth(1));

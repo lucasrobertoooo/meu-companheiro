@@ -296,6 +296,11 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .fin-fresh{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;
   background:var(--paper-2);border:1px solid var(--line);border-radius:12px;padding:9px 12px}
 .fin-fresh-lbl{font-size:12px;color:var(--muted)}
+.fin-fresh-acts{display:flex;align-items:center;gap:14px;flex:none}
+.reconnect-hint{font-size:12px;color:var(--muted);line-height:1.45;margin:0 0 6px}
+.reconnect-status{font-size:13px;margin-top:8px;min-height:18px;color:var(--ink-soft)}
+.reconnect-status a{color:var(--clay);font-weight:800;text-decoration:none}
+.reconnect-status a:active{opacity:.7}
 .fin-refresh{flex:none;font-family:inherit;font-size:12px;font-weight:600;color:var(--ink-soft);
   background:none;border:none;padding:6px 2px;cursor:pointer}
 .fin-refresh:active{opacity:.55}
