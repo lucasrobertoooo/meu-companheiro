@@ -578,16 +578,33 @@ function renderCards(snap){
     daily.push({ key:'pelv', title:'Pélvico', ic:icon('pelvico'), badge:`${pv.done||0}/${pv.total||3}`, body:`<div class="pv-slots">${chips}</div>`, done, mini:`${pv.done||0}/${pv.total||3}` });
   }
 
-  // LEITURA — toca no livro pra marcar; toca de novo pra desfazer. done = todos lidos hoje.
+  // LEITURA — MOBILE-LEITURA-COMPLETA-2026-07-21 · card completo (autor, página/total, %, barra).
+  // Toca o livro (ou "registrar leitura") → modal pra marcar em que página parou (atualiza % e streak).
+  // O ✓ do lado é o check rápido "li hoje" (toggle), como antes.
   if (snap.leitura && Array.isArray(snap.leitura.books) && snap.leitura.books.length){
     const books = snap.leitura.books;
     const rows = books.map(b => {
       const key = 'leitura:' + b.id, pend = pendingFor(key, !!b.done);
-      const st = pend ? '…' : (b.done ? '✓ lido hoje · desfazer' : 'li hoje');
-      return `<button class="book-btn ${pend?'wait':(b.done?'done':'')}" data-ev="leitura" data-book="${escapeHtml(b.id)}" data-done="${b.done?1:0}" ${pend?'disabled':''}>
-        <span class="book-title">${escapeHtml(b.title)}</span><span class="book-mark">${st}</span></button>`;
+      const cur = b.current || 0, tot = b.total || 0, pct = Math.max(0, Math.min(100, b.pct || 0));
+      const unit = b.audio ? 'min' : 'pág';
+      const meta = tot > 0 ? `${unit} <b>${cur}</b> de <b>${tot}</b> · <b>${pct}%</b>` : `${unit} <b>${cur}</b>`;
+      const dataAttrs = `data-book="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}" data-cur="${cur}" data-tot="${tot}" data-audio="${b.audio?1:0}"`;
+      return `<div class="book-card ${pend?'wait':(b.done?'done':'')}">
+        <div class="book-top">
+          <button class="book-main" data-ev="leit.log" ${dataAttrs}>
+            <div class="book-t">${escapeHtml(b.title)}</div>
+            ${b.author ? `<div class="book-a">${escapeHtml(b.author)}</div>` : ''}
+          </button>
+          <button class="book-chk ${b.done?'on':''}" data-ev="leitura" data-book="${escapeHtml(b.id)}" data-done="${b.done?1:0}" ${pend?'disabled':''} aria-label="li hoje">${pend?'…':(b.done?'✓':'')}</button>
+        </div>
+        <div class="book-bar"><div class="book-fill" style="width:${pct}%"></div></div>
+        <div class="book-meta"><span>${meta}</span>
+          <button class="book-reg" data-ev="leit.log" ${dataAttrs}>${b.done?'atualizar página':'registrar leitura'}</button></div>
+      </div>`;
     }).join('');
-    daily.push({ key:'leit', title:'Leitura', ic:icon('leitura'), badge:'', body:`<div class="book-list">${rows}</div>`, done: books.every(b => b.done), mini:'lido' });
+    const stk = snap.leitura.streak || 0;
+    daily.push({ key:'leit', title:'Leitura', ic:icon('leitura'), badge: stk > 0 ? `${stk}d` : '',
+      body:`<div class="book-list">${rows}</div>`, done: books.every(b => b.done), mini:'lido' });
   }
 
   // ---- ordena e renderiza ---- (Fechar o dia/Reflexão são de fim de dia → vão pro fim; ORDEM-2026-07-16)
@@ -778,6 +795,37 @@ function openSkinInfo(type, title){
 }
 function closeSkinInfo(){ $('skinInfoModal').hidden = true; }
 
+/* ---------- leitura: registrar sessão ("parei na página X") · MOBILE-LEITURA-COMPLETA-2026-07-21 ----------
+   Evento leitura.log é ABSOLUTO e idempotente: o Mac seta currentPage, garante a entrada de hoje
+   no log (= lido hoje) e move o streak de leitura na 1ª sessão do dia. Não toca o sagrado, sem XP. */
+let _leitBook = null;
+function openLeitModal(bookId, title, cur, tot, audio){
+  _leitBook = { id: bookId };
+  const unit = audio ? 'minuto' : 'página';
+  $('leitModalTitle').textContent = title || 'Registrar leitura';
+  $('leitModalSub').textContent = `${unit} atual: ${cur}${tot ? ` de ${tot}` : ''}`;
+  const inp = $('leitPage');
+  inp.value = cur || '';
+  inp.placeholder = audio ? 'ex: 120' : 'ex: 84';
+  if (tot) inp.max = tot; else inp.removeAttribute('max');
+  $('leitHint').textContent = tot ? (audio ? `total: ${tot} min` : `total: ${tot} páginas`) : '';
+  $('leitModal').hidden = false;
+  setTimeout(() => { try { inp.focus(); inp.select(); } catch(e){} }, 60);
+}
+function closeLeitModal(){ $('leitModal').hidden = true; _leitBook = null; }
+function saveLeitModal(){
+  if (!_leitBook) return;
+  const v = parseInt($('leitPage').value, 10);
+  if (isNaN(v) || v < 0){ flashError('coloca onde você parou'); return; }
+  const id = _leitBook.id, key = 'leitura:' + id;
+  closeLeitModal();
+  _pending[key] = true;                    // otimista: marca lido até o snapshot confirmar
+  if (_lastSnap) render(_lastSnap);
+  postEvent({ type:'leitura.log', bookId:id, page:v })
+    .then(() => { [6, 14, 24, 34].forEach(s => setTimeout(refresh, s * 1000)); })
+    .catch(err => { delete _pending[key]; flashError(err.message || 'falha ao enviar'); if (_lastSnap) render(_lastSnap); });
+}
+
 /* ---------- fechar o dia (modal: humor + frase). Sacro (+15 XP/streak) → fire-and-forget pelo hub ---------- */
 let _dayMood = null;
 function openDayModal(){
@@ -899,6 +947,8 @@ const onCardClick = async (e) => {
     return;
   }
   if (ev === 'intent.edit'){ openEditor(Number(btn.dataset.id), btn.dataset.text || '', btn.dataset.note || ''); return; }
+  if (ev === 'leit.log'){ openLeitModal(btn.dataset.book, btn.dataset.title || '', Number(btn.dataset.cur) || 0,
+                                        Number(btn.dataset.tot) || 0, btn.dataset.audio === '1'); return; }
   if (ev === 'intent.new'){ openEditor(null, '', ''); return; }
 
   // PRIORIDADE toggle — OTIMISTA: muda na HORA no celular; o Mac reconcilia em 2º plano.
@@ -1003,6 +1053,11 @@ $('cfgClear').addEventListener('click', ()=>{ clearCfg(); $('cfgPat').value=''; 
 $('pushBtn').addEventListener('click', enablePush);
 $('modal').addEventListener('click', e=>{ if (e.target === $('modal')) closeModal(); });
 $('editSave').addEventListener('click', saveEditor);
+/* MOBILE-LEITURA-COMPLETA-2026-07-21 · modal de registrar leitura */
+$('leitSave').addEventListener('click', saveLeitModal);
+$('leitCancel').addEventListener('click', closeLeitModal);
+$('leitModal').addEventListener('click', e => { if (e.target === $('leitModal')) closeLeitModal(); });
+$('leitPage').addEventListener('keydown', e => { if (e.key === 'Enter') saveLeitModal(); });
 $('editCancel').addEventListener('click', closeEditor);
 $('editDelete').addEventListener('click', deleteIntent);
 $('editModal').addEventListener('click', e=>{ if (e.target === $('editModal')) closeEditor(); });

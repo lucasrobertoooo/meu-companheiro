@@ -188,6 +188,26 @@ body{
 .book-btn.done{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0}
 .book-btn.done .book-mark{color:#bcd3b0}
 .book-btn.wait{opacity:.55;cursor:default}
+/* MOBILE-LEITURA-COMPLETA-2026-07-21 · card de livro com página/%/barra (espelha o widget do Mac) */
+.book-card{display:flex;flex-direction:column;gap:8px;padding:11px 12px;border-radius:12px;
+  border:1px solid var(--line);background:var(--paper-2)}
+.book-card.done{background:var(--sage-soft);border-color:#3a4a36}
+.book-card.wait{opacity:.55}
+.book-top{display:flex;align-items:center;gap:10px}
+.book-main{flex:1;min-width:0;text-align:left;background:transparent;border:none;color:inherit;font-family:inherit;padding:0;cursor:pointer}
+.book-t{font-size:14px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.book-a{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.book-chk{flex:none;width:30px;height:30px;border-radius:50%;border:1.5px solid var(--line);
+  background:transparent;color:var(--clay);font-size:15px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.book-chk.on{background:var(--sage);border-color:var(--sage);color:#10180e}
+.book-bar{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
+.book-fill{height:100%;border-radius:99px;background:var(--clay);transition:width .45s ease}
+.book-card.done .book-fill{background:var(--sage)}
+.book-meta{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--muted)}
+.book-meta b{color:var(--ink-soft)}
+.book-reg{background:transparent;border:none;padding:0;font-family:inherit;font-size:11.5px;font-weight:700;color:var(--clay);cursor:pointer}
+.leit-sub{font-size:12.5px;color:var(--muted);margin:-4px 0 10px}
+.leit-hint{font-size:11.5px;color:var(--muted);margin-top:6px}
 
 /* estados de carregamento / erro */
 .state-msg{text-align:center;color:var(--muted);font-size:13px;padding:30px 10px}
