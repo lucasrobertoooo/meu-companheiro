@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Conectar banco · Companheiro</title>
+<style>
+ body{font-family:-apple-system,system-ui,sans-serif;background:#101012;color:#ebebee;margin:0;
+   min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+   text-align:center;padding:32px 20px}
+ h2{margin:0 0 8px;font-size:20px} p{color:#9a9aa2;max-width:440px;line-height:1.5;margin:6px 0}
+ #open{margin-top:20px;padding:15px 26px;font-size:16px;border:none;border-radius:13px;
+   background:#e8734f;color:#1a0f0a;font-weight:800;cursor:pointer}
+ #open:active{opacity:.85} #open:disabled{opacity:.5}
+ #out{margin-top:22px;width:100%;max-width:520px}
+ .item{background:#1b1b1f;border:1px solid #2c2c31;border-radius:12px;padding:14px;margin:10px 0;text-align:left}
+ .item b{color:#93b184} .item code{color:#e8b04f;font-size:15px;user-select:all;word-break:break-all}
+ #msg{margin-top:14px;font-size:13px;min-height:18px} .err{color:#e08a6f}
+ .hint{margin-top:10px;font-size:12px;color:#6c6c74;font-style:italic}
+</style></head><body>
+ <h2>Conectar banco</h2>
+ <p>Escolha o banco (Santander) e faça o login — a senha vai direto pro banco, <b>não passa por aqui</b>.</p>
+ <p>Ao terminar, o <b>itemId</b> aparece abaixo. <b>Copie e me mande no chat.</b></p>
+ <button id="open">Abrir conexão</button>
+ <div id="msg"></div>
+ <div id="out"></div>
+ <div class="hint">isto cria uma conexão nova (com dados). Depois eu troco pela antiga que ficou vazia.</div>
+ <script src="https://cdn.pluggy.ai/pluggy-connect/v2.8.2/pluggy-connect.js"></script>
+ <script>
+  var TOKEN = new URLSearchParams(location.search).get('token') || '';
+  var items = [], msg = document.getElementById('msg'), btn = document.getElementById('open');
+  if (!TOKEN) { btn.disabled = true; msg.className = 'err'; msg.textContent = 'Link sem token — peça um novo.'; }
+  function show(){
+    document.getElementById('out').innerHTML = items.map(function(it){
+      return '<div class="item">✅ <b>' + (it.name || 'banco') + '</b><br>itemId: <code>' + it.id + '</code></div>';
+    }).join('');
+  }
+  btn.onclick = function(){
+    btn.disabled = true; msg.textContent = 'abrindo…';
+    try {
+      var pc = new PluggyConnect({
+        connectToken: TOKEN, connectorIds: [200], includeSandbox: true,
+        onSuccess: function(data){ var it = (data && data.item) || {};
+          items.push({ id: it.id, name: (it.connector && it.connector.name) || 'banco' }); show();
+          msg.className = ''; msg.textContent = 'Conectado! Copie o itemId acima e me mande.'; btn.disabled = false; },
+        onError: function(e){ btn.disabled = false; msg.className = 'err'; msg.textContent = 'Erro: ' + ((e && e.message) || 'tente de novo'); }
+      });
+      pc.init();
+    } catch(e){ btn.disabled = false; msg.className = 'err'; msg.textContent = 'Falha ao abrir: ' + e.message; }
+  };
+ </script>
+</body></html>
