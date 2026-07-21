@@ -369,6 +369,7 @@ function finCatsHtml(rows){
       if (r.origem === 'Pluggy') badges.push(`<span class="fin-bdg plug" title="sincronizado do banco (Pluggy) — atualiza sozinho">🔗</span>`);
       if (r.venc)  badges.push(`<span class="fin-bdg" title="vence dia ${r.venc}">d${r.venc}</span>`);
       if (r.split) badges.push(`<span class="fin-bdg split" title="dividir com a esposa">÷</span>`);
+      if (r.manualOverride) badges.push(`<span class="fin-bdg manual" title="valor editado manualmente — some no próximo sync real do Pluggy">✎</span>`);
       const sc = 's-' + String(r.status||'Previsto').toLowerCase();
       const rid = escapeHtml(String(r.id));
       return `<div class="fin-row ${r.status==='Pago'?'pago':''} ${r.status==='Cancelado'?'canc':''}" data-id="${rid}">
