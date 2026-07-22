@@ -52,7 +52,15 @@ const TODAY_MODULES = [
 
 /* ---------- config ---------- */
 function getCfg(){ try{ return JSON.parse(localStorage.getItem(CFG_KEY)) || null; }catch{ return null; } }
-function setCfg(c){ localStorage.setItem(CFG_KEY, JSON.stringify(c)); }
+function setCfg(c){ localStorage.setItem(CFG_KEY, JSON.stringify(c)); _etag = null; }
+
+// ETAG-2026-07-22 · o snapshot só muda quando o Mac reescreve de verdade (o publishNow() já deduplica
+// pelo conteúdo, ignorando o ts). Sem revalidação condicional o celular rebaixava ~98 KB a cada 25 s
+// mesmo com tudo igual (~14 MB/h de app aberto). Com If-None-Match isso vira um 304 sem corpo — que
+// ainda por cima não conta no rate limit da API do GitHub. Se a API não mandar ETag, _etag fica null e
+// o comportamento volta a ser o de antes (degradação segura).
+const NOT_MODIFIED = Symbol('not-modified');
+let _etag = null;
 function clearCfg(){ localStorage.removeItem(CFG_KEY); }
 
 /* ---------- data source ---------- */
@@ -62,13 +70,14 @@ async function fetchSnapshot(){
     const [owner, repo] = cfg.repo.split('/');
     const path = cfg.path || 'snapshot.json';
     const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=main`;
-    const r = await fetch(url, {
-      headers:{ Authorization:`Bearer ${cfg.pat}`, Accept:'application/vnd.github.raw+json' },
-      cache:'no-store',
-    });
+    const headers = { Authorization:`Bearer ${cfg.pat}`, Accept:'application/vnd.github.raw+json' };
+    if (_etag) headers['If-None-Match'] = _etag;
+    const r = await fetch(url, { headers, cache:'no-store' });
+    if (r.status === 304) return NOT_MODIFIED;          // nada mudou no Mac — zero bytes de corpo
     if (r.status === 401 || r.status === 403) throw new Error('Token inválido ou sem permissão.');
     if (r.status === 404) throw new Error('Repo/arquivo não encontrado.');
     if (!r.ok) throw new Error('GitHub API '+r.status);
+    _etag = r.headers.get('ETag') || null;
     return JSON.parse(await r.text());
   }
   // dev/local
@@ -692,6 +701,7 @@ async function refresh(){
   if (_dragging) return;                 // não repinta no meio de um arraste
   try{
     const snap = await fetchSnapshot();
+    if (snap === NOT_MODIFIED){ if (_lastSnap) renderFreshness(_lastSnap); return; }   // só atualiza o "há X min"
     const key = stripTs(snap);          // dedup sem o ts (igual ao Mac) → não repinta/pisca à toa
     localStorage.setItem(SNAP_CACHE, JSON.stringify(snap));
     if (key === _lastRendered){ renderFreshness(snap); return; }
