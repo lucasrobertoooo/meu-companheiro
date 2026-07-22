@@ -24,6 +24,7 @@ const ICONS = {
   leitura:     _svg('<rect x="5" y="4" width="14" height="16" rx="1.6"/><path d="M9 4v16"/>'),
   mobilidade:  _svg('<circle cx="12" cy="4" r="1.7"/><path d="M12 6.6v6M12 12.6l-3.6 5.6M12 12.6l3.6 5.6M6 9.4l6 1.7 6-1.7"/>'),
   prioridades: _svg('<path d="M9 12.2l2.3 2.3L22 4"/><path d="M21 12.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11.5"/>'),
+  habitos:     _svg('<path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/>'),
   skincare:    _svg('<path d="M12 3l1.9 5.6 5.6 1.9-5.6 1.9L12 18l-1.9-5.6L4.5 10.5 10.1 8.6z"/>'),
   flame:       _svg('<path d="M12 2.5c2.5 3.2 4 5.4 4 8a4 4 0 0 1-8 0c0-.9.3-1.7.8-2.4C7.2 8.2 8.2 10.6 9.6 11 8.9 8 10 4.9 12 2.5z"/>'),
   check:       _svg('<path d="M20 6.5L9.5 17 5 12.5"/>'),
@@ -203,6 +204,31 @@ function skinRoutine(rt, slot, label){
     </div>`;
   }).join('') : `<div class="todo-empty">sem passos habilitados</div>`;
   return `<div class="skin-rt">${head}<div class="skin-steps">${rows}${skinBtn(rt, slot)}</div></div>`;
+}
+// HÁBITOS · o celular NÃO recalcula regra nenhuma: quem é "devido hoje" já vem decidido pelo Mac
+// (regra de ritmo, teto de foco, graduação moram no habitos.lua). Aqui só marca. MOBILE-HABITOS-2026-07-21.
+function habitosBody(hb){
+  const itens = hb.itens || [];
+  if (!itens.length) return `<div class="todo-empty">nenhum hábito ativo</div>`;
+  const rows = itens.map(h => {
+    const pend = pendingFor('habito.' + h.id, h.done);
+    const semanal = h.freq >= 7 ? '' : `<span class="hb-wk${h.devido && !h.done ? ' due' : ''}">${h.devido && !h.done ? 'hoje · ' : ''}sem ${h.semana}/${h.freq}</span>`;
+    const tipo = `<span class="hb-tp${h.tipo === 'foco' ? ' foco' : ''}">${h.tipo === 'foco' ? 'foco' : 'âncora'}</span>`;
+    return `<div class="hb-row ${h.done ? 'done' : ''}">
+      <button class="prio-chk ${h.done ? 'on' : ''}" data-ev="habito.toggle" data-id="${escapeHtml(h.id)}" data-done="${h.done ? 1 : 0}" ${pend ? 'disabled' : ''} aria-label="marcar hábito">${h.done ? icon('check') : ''}</button>
+      <span class="hb-nm">${escapeHtml(h.nome)}</span>${semanal}${tipo}
+    </div>`;
+  }).join('');
+  return `<div class="hb-list">${rows}</div>`;
+}
+// otimista: marca o hábito no snapshot local e recomputa o contador do dia
+function optimisticHabito(id){
+  const hb = _lastSnap && _lastSnap.habitos; if (!hb || !Array.isArray(hb.itens)) return;
+  const h = hb.itens.find(x => x.id === id); if (!h) return;
+  h.done = !h.done;
+  h.semana = Math.max(0, (h.semana || 0) + (h.done ? 1 : -1));
+  hb.done = hb.itens.filter(x => x.done).length;
+  render(_lastSnap);
 }
 // otimista: alterna o passo no snapshot local + recomputa a contagem da rotina
 function optimisticSkinStep(rt, title){
@@ -539,6 +565,14 @@ function renderCards(snap){
     const s = snap.skincare, am = s.am||{}, pm = s.pm||{}, done = !!(am.complete && pm.complete);
     daily.push({ key:'skin', title:'Skincare', ic:icon('skincare'), badge: s.streak!=null?`${icon('flame')} ${s.streak}d`:'',
       body: skinRoutine('am', am, 'Manhã') + skinRoutine('pm', pm, 'Noite'), done, mini:'manhã + noite' });
+  }
+
+  // HÁBITOS — âncoras + foco da semana. done quando nada devido continua pendente.
+  if (snap.habitos && (snap.habitos.itens || []).length){
+    const hb = snap.habitos, done = (hb.total > 0 && hb.done >= hb.total);
+    daily.push({ key:'habitos', title:'Hábitos', ic:icon('habitos'),
+      badge: hb.streak ? `${icon('flame')} ${hb.streak}d` : '',
+      body: habitosBody(hb), done, mini: hb.total ? `${hb.done}/${hb.total}` : 'nada devido' });
   }
 
   // MEDITAÇÃO — toggle: marca / desfaz (marcou por engano).
@@ -968,6 +1002,16 @@ const onCardClick = async (e) => {
     optimisticSkinStep(rt, title);
     try{ await postEvent({ type:'skincare.step', routine:rt, title, done: target }); schedulePrioRefresh(); }
     catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    return;
+  }
+
+  // HÁBITOS: marcar/desmarcar um hábito (otimista, igual ao passo do skincare)
+  if (ev === 'habito.toggle'){
+    const id = btn.dataset.id, target = btn.dataset.done !== '1';
+    _pending['habito.' + id] = target;
+    optimisticHabito(id);
+    try{ await postEvent({ type:'habito.toggle', id, done: target }); schedulePrioRefresh(); }
+    catch(err){ delete _pending['habito.' + id]; flashError(err.message || 'falha ao enviar'); refresh(); }
     return;
   }
 

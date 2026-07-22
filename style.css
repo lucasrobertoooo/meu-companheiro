@@ -389,3 +389,15 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
   display:flex;align-items:center;gap:4px}
 .card-collapse .ic-svg{width:13px;height:13px}
 .ghost-btn{margin-top:8px;background:none;border:1px dashed var(--line);color:var(--muted);font-weight:600}
+
+/* HÁBITOS · MOBILE-HABITOS-2026-07-21 — mesma linguagem dos passos do skincare */
+.hb-list{display:flex;flex-direction:column;gap:2px}
+.hb-row{display:flex;align-items:center;gap:9px;padding:7px 2px}
+.hb-row+.hb-row{border-top:1px solid var(--line)}
+.hb-row.done .hb-nm{text-decoration:line-through;opacity:.55}
+.hb-nm{flex:1;min-width:0;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hb-wk,.hb-tp{flex:none;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;white-space:nowrap}
+.hb-wk{background:rgba(215,171,90,.16);color:#d7ab5a}
+.hb-wk.due{background:rgba(232,115,79,.2);color:#e8734f}
+.hb-tp{background:rgba(140,140,148,.16);color:var(--muted)}
+.hb-tp.foco{background:rgba(232,115,79,.14);color:#e8734f}
