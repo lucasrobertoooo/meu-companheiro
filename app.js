@@ -515,13 +515,11 @@ function renderExtrato(){
 }
 
 const DAY_MOOD_EMOJI = { leve:'😊', normal:'😐', puxado:'😩' };
-const PELVIC_SLOTS = [['morning','manhã'], ['afternoon','tarde'], ['evening','noite']];
 let _cardExpanded = {};   // cards concluídos que o Lucas expandiu (default = minimizado; não persiste)
-// otimista: marca/desmarca um slot do pélvico no snapshot local + recomputa done
-function optimisticPelvic(slot, target){
+// PELVIC-COUNT-2026-07-23 · otimista: soma/subtrai uma sessão (não é mais slot de faixa)
+function optimisticPelvic(delta){
   const pv = _lastSnap && _lastSnap.pelvico; if (!pv) return;
-  pv.slots = pv.slots || {}; pv.slots[slot] = target;
-  pv.done = PELVIC_SLOTS.filter(([k]) => pv.slots[k]).length;
+  pv.done = Math.max(0, (pv.done||0) + delta);
   render(_lastSnap);
 }
 // LAYOUT-DIA-2026-07-15 · monta os cards de hábito como descritores {done} e ordena:
@@ -613,12 +611,11 @@ function renderCards(snap){
 
   // PÉLVICO — 3 slots; toca pra marcar, toca de novo pra desfazer (só os marcados pelo celular).
   if (snap.pelvico){
-    const pv = snap.pelvico, slots = pv.slots || {}, done = (pv.done||0) >= (pv.total||3);
-    const chips = PELVIC_SLOTS.map(([k, lbl]) => {
-      const on = !!slots[k];
-      return `<button class="pv-slot ${on?'on':''}" data-ev="pelvico.slot" data-slot="${k}" data-done="${on?1:0}">${on?icon('check'):''}<span>${lbl}</span></button>`;
-    }).join('');
-    daily.push({ key:'pelv', title:'Pélvico', ic:icon('pelvico'), badge:`${pv.done||0}/${pv.total||3}`, body:`<div class="pv-slots">${chips}</div>`, done, mini:`${pv.done||0}/${pv.total||3}` });
+    const pv = snap.pelvico, n = pv.done||0, tot = pv.total||3, done = n >= tot;
+    const undo = n > 0 ? `<button class="pv-undo" data-ev="pelvico.undo">−1</button>` : '';
+    const body = `<div class="pv-count"><b>${n}</b> de ${tot} sessões hoje${done?' · meta batida 🎉':''}</div>`+
+      `<div class="pv-btns"><button class="mark-btn" data-ev="pelvico.add">+1 sessão feita</button>${undo}</div>`;
+    daily.push({ key:'pelv', title:'Pélvico', ic:icon('pelvico'), badge:`${n}/${tot}`, body, done, mini:`${n}/${tot}` });
   }
 
   // LEITURA — MOBILE-LEITURA-COMPLETA-2026-07-21 · card completo (autor, página/total, %, barra).
@@ -983,10 +980,10 @@ const onCardClick = async (e) => {
   if (ev === 'card.collapse'){ delete _cardExpanded[btn.dataset.key]; if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'day.open'){ openDayModal(); return; }
   if (ev === 'refl.open'){ openReflModal(); return; }
-  if (ev === 'pelvico.slot'){
-    const slot = btn.dataset.slot, target = btn.dataset.done !== '1';   // toggle: marca / desfaz
-    optimisticPelvic(slot, target);
-    try{ await postEvent({ type:'pelvico.session', slot, done: target }); schedulePrioRefresh(); }
+  if (ev === 'pelvico.add' || ev === 'pelvico.undo'){   // PELVIC-COUNT-2026-07-23 · +1 / −1 sessão
+    const add = ev === 'pelvico.add';
+    optimisticPelvic(add ? +1 : -1);
+    try{ await postEvent({ type:'pelvico.session', done: add }); schedulePrioRefresh(); }
     catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
     return;
   }
