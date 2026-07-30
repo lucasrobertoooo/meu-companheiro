@@ -259,7 +259,7 @@ function comerBody(cm){
   if (meal){
     h += `<div class="cm-lbl">monte seu ${escapeHtml(meal.nome.toLowerCase())}</div><div class="cm-chips">`;
     h += (meal.itens||[]).map(id=>byId[id]).filter(Boolean).map(b =>
-      `<button class="cm-chip" data-ev="comer.add" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('');
+      `<button class="cm-chip" data-ev="comer.portion" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}" data-medida="${escapeHtml(b.medida||'')}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('');
     h += `</div>`;
   }
   h += `<button class="cm-more" data-ev="comer.all">＋ outro item / buscar…</button>`;
@@ -738,12 +738,35 @@ function openComerModal(){
   renderComerModalList();
 }
 function closeComerModal(){ $('comerModal').hidden = true; }
+// seletor de PORÇÃO — flexibiliza a quantidade (½/1/1½/2/3 ou exato em g). MOBILE-COMER-2026-07-29.
+let _cmPortion = null;
+function cmMultLabel(m){ return m===0.5?'½':m===1.5?'1½':m===0.25?'¼':(m+'×'); }
+function openComerPortion(id, nome, baseProt, medida){
+  _cmPortion = { id, nome, baseProt };
+  $('cmPortionTitle').textContent = nome;
+  $('cmPortionSub').textContent = (medida||'') + '  ·  1× = ' + baseProt + 'g';
+  const mults = [0.5, 1, 1.5, 2, 3];
+  $('cmPortionBtns').innerHTML = mults.map(m =>
+    `<button class="cm-pbtn ${m===1?'main':''}" data-mult="${m}"><b>${cmMultLabel(m)}</b><small>${Math.round(baseProt*m)}g</small></button>`).join('');
+  $('cmPortionExact').value = '';
+  $('comerPortion').hidden = false;
+}
+function closeComerPortion(){ $('comerPortion').hidden = true; _cmPortion = null; }
+async function comerAddPortion(prot, label){
+  const p = _cmPortion; if (!p) return;
+  const nome = p.nome + (label ? ` (${label})` : '');
+  const t = nowHHMM();
+  closeComerPortion();
+  optimisticComer(+prot, { nome, prot, t });
+  try{ await postEvent({ type:'comer.add', id:p.id, nome, prot, t }); schedulePrioRefresh(); }
+  catch(err){ optimisticComer(-prot); flashError(err.message || 'falha ao enviar'); refresh(); }
+}
 function renderComerModalList(){
   const cm = _lastSnap && _lastSnap.comer; if (!cm) return;
   const q = cmNorm(_comerModalQ);
   const list = (cm.banco||[]).filter(b => !q || cmNorm(b.nome).indexOf(q)>=0 || cmNorm(b.medida).indexOf(q)>=0);
   $('comerModalList').innerHTML = list.length
-    ? list.map(b => `<button class="cm-chip" data-ev="comer.add" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('')
+    ? list.map(b => `<button class="cm-chip" data-ev="comer.portion" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}" data-medida="${escapeHtml(b.medida||'')}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('')
     : '<div class="todo-empty">nada encontrado</div>';
 }
 let _comerModalQ = '';
@@ -1119,6 +1142,7 @@ const onCardClick = async (e) => {
     return;
   }
   if (ev === 'comer.meal'){ _comerMeal = btn.dataset.meal; if (_lastSnap) render(_lastSnap); return; }
+  if (ev === 'comer.portion'){ openComerPortion(btn.dataset.id, btn.dataset.nome, +btn.dataset.prot||0, btn.dataset.medida||''); return; }
   if (ev === 'comer.all'){ openComerModal(); return; }
 
   // FINANCEIRO (local, aplica direto — funciona com o hub fechado)
@@ -1200,6 +1224,17 @@ $('comerModalList').addEventListener('click', onCardClick);
 $('comerSearch').addEventListener('input', function(){ _comerModalQ = this.value; renderComerModalList(); });
 $('comerModalClose').addEventListener('click', closeComerModal);
 $('comerModal').addEventListener('click', e => { if (e.target === $('comerModal')) closeComerModal(); });
+// seletor de porção
+$('cmPortionBtns').addEventListener('click', e => {
+  const b = e.target.closest('[data-mult]'); if (!b || !_cmPortion) return;
+  const m = +b.dataset.mult;
+  comerAddPortion(Math.round(_cmPortion.baseProt * m), m===1 ? '' : cmMultLabel(m));
+});
+$('cmPortionGo').addEventListener('click', () => {
+  const g = parseInt($('cmPortionExact').value, 10); if (g>0) comerAddPortion(g, '');
+});
+$('cmPortionClose').addEventListener('click', closeComerPortion);
+$('comerPortion').addEventListener('click', e => { if (e.target === $('comerPortion')) closeComerPortion(); });
 
 /* ---------- boot ---------- */
 $('gear').addEventListener('click', openModal);

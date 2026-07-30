@@ -438,3 +438,13 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .cm-mtab{flex:1;padding:8px 4px;border-radius:10px;border:1px solid var(--line);background:transparent;
   color:var(--muted);font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
 .cm-mtab.on{border-color:#5b9bd5;color:#5b9bd5;background:rgba(91,155,213,.12)}
+
+/* COMER · seletor de porção · MOBILE-COMER-2026-07-29 */
+.cm-psub{font-size:12px;color:#5b9bd5;font-weight:700;margin-bottom:12px}
+.cm-pbtns{display:flex;gap:7px;flex-wrap:wrap}
+.cm-pbtn{flex:1;min-width:54px;padding:11px 6px;border-radius:11px;border:1px solid var(--line);background:transparent;color:var(--ink,#f0eef0);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+.cm-pbtn b{font-size:16px}
+.cm-pbtn small{font-size:10px;color:var(--muted)}
+.cm-pbtn.main{border-color:#5b9bd5}
+.cm-pexact{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-top:12px}
+.cm-pexact input{width:64px;background:rgba(0,0,0,.25);border:1px solid var(--line);color:var(--ink,#f0eef0);font-family:inherit;font-size:14px;padding:7px 8px;border-radius:9px;text-align:center}
