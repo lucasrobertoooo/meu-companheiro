@@ -25,6 +25,7 @@ const ICONS = {
   mobilidade:  _svg('<circle cx="12" cy="4" r="1.7"/><path d="M12 6.6v6M12 12.6l-3.6 5.6M12 12.6l3.6 5.6M6 9.4l6 1.7 6-1.7"/>'),
   prioridades: _svg('<path d="M9 12.2l2.3 2.3L22 4"/><path d="M21 12.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11.5"/>'),
   habitos:     _svg('<path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/>'),
+  comer:       _svg('<path d="M11 2v20M8 2v7a3 3 0 01-3 3M5 2v7M16 2c-1 2-1 5 0 7 1 1 2 1 2 3v10"/>'),
   skincare:    _svg('<path d="M12 3l1.9 5.6 5.6 1.9-5.6 1.9L12 18l-1.9-5.6L4.5 10.5 10.1 8.6z"/>'),
   flame:       _svg('<path d="M12 2.5c2.5 3.2 4 5.4 4 8a4 4 0 0 1-8 0c0-.9.3-1.7.8-2.4C7.2 8.2 8.2 10.6 9.6 11 8.9 8 10 4.9 12 2.5z"/>'),
   check:       _svg('<path d="M20 6.5L9.5 17 5 12.5"/>'),
@@ -231,6 +232,42 @@ function habitosBody(hb){
   return `<div class="hb-list">${rows}</div>`;
 }
 // otimista: marca o hábito no snapshot local e recomputa o contador do dia
+// COMER · barra de proteína + sugestão + toque nos favoritos/combos pra somar. MOBILE-COMER-2026-07-29.
+// O celular NÃO recalcula meta/sugestão — vêm decididos pelo Mac (recomp mora lá).
+function comerBody(cm){
+  const n = cm.prot||0, m = cm.meta, pct = Math.min(100, Math.round(n/m*100)), done = n>=m;
+  const barCol = done ? 'var(--sage,#93b184)' : '#5b9bd5';
+  let h = `<div class="cm-track"><div class="cm-fill" style="width:${pct}%;background:${barCol}"></div></div>`;
+  h += `<div class="cm-sugg">${done ? '✓ meta batida hoje' : escapeHtml(cm.sugestao || ('faltam '+(m-n)+'g'))}</div>`;
+  // combos (1 toque = refeição) + favoritos
+  const combos = cm.combos || [], favs = cm.favoritos || [];
+  if (combos.length){
+    h += `<div class="cm-lbl">refeições rápidas</div><div class="cm-chips">`;
+    h += combos.map(c => `<button class="cm-chip combo" data-ev="comer.add" data-id="${escapeHtml(c.id)}" data-nome="${escapeHtml(c.nome)}" data-prot="${c.prot}"><b>${escapeHtml(c.nome)}</b><small>${escapeHtml(c.desc||'')}</small><i>+${c.prot}g</i></button>`).join('');
+    h += `</div>`;
+  }
+  if (favs.length){
+    h += `<div class="cm-lbl">favoritos</div><div class="cm-chips">`;
+    h += favs.map(b => `<button class="cm-chip" data-ev="comer.add" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('');
+    h += `</div>`;
+  }
+  h += `<button class="cm-more" data-ev="comer.all">＋ outro item…</button>`;
+  // log de hoje
+  const lg = cm.log || [];
+  if (lg.length){
+    h += `<div class="cm-lbl">hoje</div><div class="cm-log">`;
+    h += lg.map(x => `<div class="cm-lrow"><span>${escapeHtml(x.nome)}</span><small>${escapeHtml(x.t||'')}</small><i>+${x.prot}g</i><button class="cm-lx" data-ev="comer.undo" data-t="${escapeHtml(x.t||'')}">×</button></div>`).join('');
+    h += `</div>`;
+  }
+  return h;
+}
+// otimista: ajusta a barra na hora (o log detalhado chega no próximo snapshot)
+function optimisticComer(delta, entry){
+  const cm = _lastSnap && _lastSnap.comer; if (!cm) return;
+  cm.prot = Math.max(0, (cm.prot||0) + delta);
+  if (entry){ cm.log = (cm.log||[]); if (delta>0) cm.log.push(entry); }
+  render(_lastSnap);
+}
 function optimisticHabito(id){
   const hb = _lastSnap && _lastSnap.habitos; if (!hb || !Array.isArray(hb.itens)) return;
   const h = hb.itens.find(x => x.id === id); if (!h) return;
@@ -582,6 +619,13 @@ function renderCards(snap){
       body: habitosBody(hb), done, mini: hb.total ? `${hb.done}/${hb.total}` : 'nada devido' });
   }
 
+  // COMER — barra de proteína + toque pra somar (proteína-primeiro). MOBILE-COMER-2026-07-29.
+  if (snap.comer && snap.comer.meta){
+    const cm = snap.comer, n = cm.prot||0, m = cm.meta, done = n >= m;
+    daily.push({ key:'comer', title:'Comer', ic:icon('comer'),
+      badge:`${n}/${m}g`, body: comerBody(cm), done, mini:`${n}/${m}g` });
+  }
+
   // MEDITAÇÃO — toggle: marca / desfaz (marcou por engano).
   if (snap.doneToday){
     const done = !!snap.doneToday.meditacao, pend = pendingFor('meditacao', done);
@@ -648,7 +692,7 @@ function renderCards(snap){
   }
 
   // ---- ordena e renderiza ---- (Fechar o dia/Reflexão são de fim de dia → vão pro fim; ORDEM-2026-07-16)
-  const CARD_ORDER = { agua:1, remedios:2, prio:3, skin:4, med:5, mob:6, pelv:7, leit:8, reflexao:9, daylog:10 };
+  const CARD_ORDER = { agua:1, comer:2, remedios:3, prio:4, habitos:5, skin:6, med:7, mob:8, pelv:9, leit:10, reflexao:11, daylog:12 };
   const ord = c => (CARD_ORDER[c.key] || 50);
   const parts = [];
   const pend = daily.filter(c => !c.done).sort((a,b) => ord(a)-ord(b));
@@ -671,6 +715,26 @@ function renderCards(snap){
 }
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function nowHHMM(){ const d=new Date(), p=n=>n<10?'0'+n:''+n; return p(d.getHours())+':'+p(d.getMinutes()); }
+function cmNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+// modal "outro item" — busca em TODO o banco (acento-insensível), toca pra somar
+function openComerModal(){
+  const cm = _lastSnap && _lastSnap.comer; if (!cm || !cm.banco) return;
+  _comerModalQ = '';
+  $('comerModal').hidden = false;
+  const inp = $('comerSearch'); if (inp){ inp.value=''; setTimeout(()=>inp.focus(),50); }
+  renderComerModalList();
+}
+function closeComerModal(){ $('comerModal').hidden = true; }
+function renderComerModalList(){
+  const cm = _lastSnap && _lastSnap.comer; if (!cm) return;
+  const q = cmNorm(_comerModalQ);
+  const list = (cm.banco||[]).filter(b => !q || cmNorm(b.nome).indexOf(q)>=0 || cmNorm(b.medida).indexOf(q)>=0);
+  $('comerModalList').innerHTML = list.length
+    ? list.map(b => `<button class="cm-chip" data-ev="comer.add" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('')
+    : '<div class="todo-empty">nada encontrado</div>';
+}
+let _comerModalQ = '';
 
 function renderFreshness(snap){
   const el = $('freshness');
@@ -1022,6 +1086,28 @@ const onCardClick = async (e) => {
     return;
   }
 
+  // COMER · marcar refeição/item, desfazer, ou abrir a busca de todos os itens. MOBILE-COMER-2026-07-29.
+  if (ev === 'comer.add'){
+    const id = btn.dataset.id, nome = btn.dataset.nome, prot = +btn.dataset.prot||0;
+    const t = nowHHMM();
+    optimisticComer(+prot, { nome, prot, t });
+    try{ await postEvent({ type:'comer.add', id, nome, prot, t }); schedulePrioRefresh(); }
+    catch(err){ optimisticComer(-prot); flashError(err.message || 'falha ao enviar'); refresh(); }
+    return;
+  }
+  if (ev === 'comer.undo'){
+    const t = btn.dataset.t;
+    const cm = _lastSnap && _lastSnap.comer;
+    const entry = cm && (cm.log||[]).find(x => x.t === t);
+    optimisticComer(entry ? -(entry.prot||0) : 0);
+    if (cm) cm.log = (cm.log||[]).filter(x => x !== entry);
+    render(_lastSnap);
+    try{ await postEvent({ type:'comer.undo', t }); schedulePrioRefresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    return;
+  }
+  if (ev === 'comer.all'){ openComerModal(); return; }
+
   // FINANCEIRO (local, aplica direto — funciona com o hub fechado)
   if (ev === 'fin.full'){ openFinFull(); return; }                                    // abre a tela cheia
   if (ev === 'ext.acc'){ const i = btn.dataset.i; _extratoOpen[i] = !_extratoOpen[i]; renderExtrato(); return; }
@@ -1096,6 +1182,11 @@ const onCardClick = async (e) => {
 $('cards').addEventListener('click', onCardClick);
 $('finFull').addEventListener('click', onCardClick);
 $('extratoFull').addEventListener('click', onCardClick);
+// COMER modal: cliques nos itens (comer.add) passam pelo mesmo dispatcher; busca + fechar
+$('comerModalList').addEventListener('click', onCardClick);
+$('comerSearch').addEventListener('input', function(){ _comerModalQ = this.value; renderComerModalList(); });
+$('comerModalClose').addEventListener('click', closeComerModal);
+$('comerModal').addEventListener('click', e => { if (e.target === $('comerModal')) closeComerModal(); });
 
 /* ---------- boot ---------- */
 $('gear').addEventListener('click', openModal);
