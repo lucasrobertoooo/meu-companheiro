@@ -234,24 +234,35 @@ function habitosBody(hb){
 // otimista: marca o hábito no snapshot local e recomputa o contador do dia
 // COMER · barra de proteína + sugestão + toque nos favoritos/combos pra somar. MOBILE-COMER-2026-07-29.
 // O celular NÃO recalcula meta/sugestão — vêm decididos pelo Mac (recomp mora lá).
+function mealByHour(){ const h=new Date().getHours(); return h<12?'cafe':h<15?'almoco':h<19?'lanche':'janta'; }
 function comerBody(cm){
   const n = cm.prot||0, m = cm.meta, pct = Math.min(100, Math.round(n/m*100)), done = n>=m;
   const barCol = done ? 'var(--sage,#93b184)' : '#5b9bd5';
   let h = `<div class="cm-track"><div class="cm-fill" style="width:${pct}%;background:${barCol}"></div></div>`;
   h += `<div class="cm-sugg">${done ? '✓ meta batida hoje' : escapeHtml(cm.sugestao || ('faltam '+(m-n)+'g'))}</div>`;
-  // combos (1 toque = refeição) + favoritos
-  const combos = cm.combos || [], favs = cm.favoritos || [];
+  const meals = cm.meals || [], combos = cm.combos || [];
+  const byId = {}; (cm.banco||[]).forEach(b => byId[b.id]=b);
+  // MONTÁVEL: abas de refeição — escolhe a refeição, toca o que comeu
+  if (meals.length){
+    if (!_comerMeal || !meals.find(x=>x.id===_comerMeal)) _comerMeal = meals.find(x=>x.id===mealByHour())?mealByHour():meals[0].id;
+    h += `<div class="cm-mtabs">` + meals.map(mm =>
+      `<button class="cm-mtab ${mm.id===_comerMeal?'on':''}" data-ev="comer.meal" data-meal="${mm.id}">${escapeHtml(mm.nome)}</button>`).join('') + `</div>`;
+  }
+  // atalhos (shakes)
   if (combos.length){
-    h += `<div class="cm-lbl">refeições rápidas</div><div class="cm-chips">`;
+    h += `<div class="cm-lbl">atalhos</div><div class="cm-chips">`;
     h += combos.map(c => `<button class="cm-chip combo" data-ev="comer.add" data-id="${escapeHtml(c.id)}" data-nome="${escapeHtml(c.nome)}" data-prot="${c.prot}"><b>${escapeHtml(c.nome)}</b><small>${escapeHtml(c.desc||'')}</small><i>+${c.prot}g</i></button>`).join('');
     h += `</div>`;
   }
-  if (favs.length){
-    h += `<div class="cm-lbl">favoritos</div><div class="cm-chips">`;
-    h += favs.map(b => `<button class="cm-chip" data-ev="comer.add" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('');
+  // opções da refeição escolhida
+  const meal = meals.find(x=>x.id===_comerMeal);
+  if (meal){
+    h += `<div class="cm-lbl">monte seu ${escapeHtml(meal.nome.toLowerCase())}</div><div class="cm-chips">`;
+    h += (meal.itens||[]).map(id=>byId[id]).filter(Boolean).map(b =>
+      `<button class="cm-chip" data-ev="comer.add" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('');
     h += `</div>`;
   }
-  h += `<button class="cm-more" data-ev="comer.all">＋ outro item…</button>`;
+  h += `<button class="cm-more" data-ev="comer.all">＋ outro item / buscar…</button>`;
   // log de hoje
   const lg = cm.log || [];
   if (lg.length){
@@ -261,6 +272,7 @@ function comerBody(cm){
   }
   return h;
 }
+let _comerMeal = '';
 // otimista: ajusta a barra na hora (o log detalhado chega no próximo snapshot)
 function optimisticComer(delta, entry){
   const cm = _lastSnap && _lastSnap.comer; if (!cm) return;
@@ -1106,6 +1118,7 @@ const onCardClick = async (e) => {
     catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
     return;
   }
+  if (ev === 'comer.meal'){ _comerMeal = btn.dataset.meal; if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'comer.all'){ openComerModal(); return; }
 
   // FINANCEIRO (local, aplica direto — funciona com o hub fechado)
