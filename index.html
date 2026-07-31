@@ -123,7 +123,14 @@
     <div class="modal">
       <h3 id="leitModalTitle">Registrar leitura</h3>
       <div class="leit-sub" id="leitModalSub"></div>
-      <label>Parei na página <input type="number" id="leitPage" min="0" inputmode="numeric" placeholder="ex: 84"></label>
+      <label id="leitPageWrap">Parei na página <input type="number" id="leitPage" min="0" inputmode="numeric" placeholder="ex: 84"></label>
+      <div id="leitAudioWrap" hidden>
+        <div class="leit-audiolbl" id="leitAudioLbl">Quanto falta</div>
+        <div class="leit-hm">
+          <input type="number" id="leitRemH" min="0" inputmode="numeric" placeholder="0"><span>h</span>
+          <input type="number" id="leitRemM" min="0" max="59" inputmode="numeric" placeholder="00"><span>min</span>
+        </div>
+      </div>
       <div class="leit-hint" id="leitHint"></div>
       <div class="modal-actions">
         <button id="leitCancel" class="btn ghost">cancelar</button>

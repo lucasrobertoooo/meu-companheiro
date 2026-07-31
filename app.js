@@ -683,7 +683,9 @@ function renderCards(snap){
       const key = 'leitura:' + b.id, pend = pendingFor(key, !!b.done);
       const cur = b.current || 0, tot = b.total || 0, pct = Math.max(0, Math.min(100, b.pct || 0));
       const unit = b.audio ? 'min' : 'pág';
-      const meta = tot > 0 ? `${unit} <b>${cur}</b> de <b>${tot}</b> · <b>${pct}%</b>` : `${unit} <b>${cur}</b>`;
+      let meta;
+      if (b.audio && tot > 0){ meta = `faltam <b>${fmtDur(Math.max(0, tot - cur))}</b> · <b>${pct}%</b>`; }
+      else meta = tot > 0 ? `${unit} <b>${cur}</b> de <b>${tot}</b> · <b>${pct}%</b>` : `${unit} <b>${cur}</b>`;
       const dataAttrs = `data-book="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}" data-cur="${cur}" data-tot="${tot}" data-audio="${b.audio?1:0}"`;
       return `<div class="book-card ${pend?'wait':(b.done?'done':'')}">
         <div class="book-top">
@@ -695,7 +697,7 @@ function renderCards(snap){
         </div>
         <div class="book-bar"><div class="book-fill" style="width:${pct}%"></div></div>
         <div class="book-meta"><span>${meta}</span>
-          <button class="book-reg" data-ev="leit.log" ${dataAttrs}>${b.done?'atualizar página':'registrar leitura'}</button></div>
+          <button class="book-reg" data-ev="leit.log" ${dataAttrs}>${b.done?(b.audio?'atualizar tempo':'atualizar página'):'registrar leitura'}</button></div>
       </div>`;
     }).join('');
     const stk = snap.leitura.streak || 0;
@@ -939,24 +941,47 @@ function closeSkinInfo(){ $('skinInfoModal').hidden = true; }
    Evento leitura.log é ABSOLUTO e idempotente: o Mac seta currentPage, garante a entrada de hoje
    no log (= lido hoje) e move o streak de leitura na 1ª sessão do dia. Não toca o sagrado, sem XP. */
 let _leitBook = null;
+function fmtDur(min){ min = Math.max(0, Math.round(min)); const h = Math.floor(min/60), m = min%60;
+  if (h && m) return `${h}h ${m}min`; if (h) return `${h}h`; return `${m}min`; }
+// AUDIO-TEMPO-2026-07-31 · audiolivro com total → registra por TEMPO QUE FALTA (h/min, como o app do Lucas).
 function openLeitModal(bookId, title, cur, tot, audio){
-  _leitBook = { id: bookId };
-  const unit = audio ? 'minuto' : 'página';
+  const timeMode = audio && tot > 0;         // só dá pra falar "quanto falta" se souber o total
+  _leitBook = { id: bookId, audio, tot, timeMode };
   $('leitModalTitle').textContent = title || 'Registrar leitura';
-  $('leitModalSub').textContent = `${unit} atual: ${cur}${tot ? ` de ${tot}` : ''}`;
-  const inp = $('leitPage');
-  inp.value = cur || '';
-  inp.placeholder = audio ? 'ex: 120' : 'ex: 84';
-  if (tot) inp.max = tot; else inp.removeAttribute('max');
-  $('leitHint').textContent = tot ? (audio ? `total: ${tot} min` : `total: ${tot} páginas`) : '';
-  $('leitModal').hidden = false;
-  setTimeout(() => { try { inp.focus(); inp.select(); } catch(e){} }, 60);
+  $('leitPageWrap').hidden = timeMode;
+  $('leitAudioWrap').hidden = !timeMode;
+  if (timeMode){
+    const rem = Math.max(0, tot - cur);
+    $('leitModalSub').textContent = `faltam ${fmtDur(rem)} de ${fmtDur(tot)}`;
+    $('leitRemH').value = Math.floor(rem/60) || '';
+    $('leitRemM').value = rem % 60 || '';
+    $('leitHint').textContent = 'quanto ainda falta pra terminar';
+    $('leitModal').hidden = false;
+    setTimeout(() => { try { const h=$('leitRemH'); h.focus(); h.select(); } catch(e){} }, 60);
+  } else {
+    const unit = audio ? 'minuto' : 'página';
+    $('leitModalSub').textContent = `${unit} atual: ${cur}${tot ? ` de ${tot}` : ''}`;
+    const inp = $('leitPage');
+    inp.value = cur || '';
+    inp.placeholder = audio ? 'ex: 120' : 'ex: 84';
+    if (tot) inp.max = tot; else inp.removeAttribute('max');
+    $('leitHint').textContent = tot ? (audio ? `total: ${tot} min` : `total: ${tot} páginas`) : '';
+    $('leitModal').hidden = false;
+    setTimeout(() => { try { inp.focus(); inp.select(); } catch(e){} }, 60);
+  }
 }
 function closeLeitModal(){ $('leitModal').hidden = true; _leitBook = null; }
 function saveLeitModal(){
   if (!_leitBook) return;
-  const v = parseInt($('leitPage').value, 10);
-  if (isNaN(v) || v < 0){ flashError('coloca onde você parou'); return; }
+  let v;
+  if (_leitBook.timeMode){
+    const h = parseInt($('leitRemH').value, 10) || 0, m = parseInt($('leitRemM').value, 10) || 0;
+    const rem = h*60 + m;                    // quanto falta → posição atual = total − falta
+    v = Math.max(0, Math.min(_leitBook.tot, _leitBook.tot - rem));
+  } else {
+    v = parseInt($('leitPage').value, 10);
+    if (isNaN(v) || v < 0){ flashError('coloca onde você parou'); return; }
+  }
   const id = _leitBook.id, key = 'leitura:' + id;
   closeLeitModal();
   _pending[key] = true;                    // otimista: marca lido até o snapshot confirmar
@@ -1220,7 +1245,14 @@ $('cards').addEventListener('click', onCardClick);
 $('finFull').addEventListener('click', onCardClick);
 $('extratoFull').addEventListener('click', onCardClick);
 // COMER modal: cliques nos itens (comer.add) passam pelo mesmo dispatcher; busca + fechar
-$('comerModalList').addEventListener('click', onCardClick);
+// FIX-2026-07-31 · a lista de busca vive DENTRO de um modal, e onCardClick ignora cliques com modal
+// aberto (anti-vazamento) → o item pesquisado nunca era adicionado. Handler próprio: fecha a busca e
+// abre o seletor de porção direto.
+$('comerModalList').addEventListener('click', e => {
+  const btn = e.target.closest('[data-ev="comer.portion"]'); if (!btn) return;
+  closeComerModal();
+  openComerPortion(btn.dataset.id, btn.dataset.nome, +btn.dataset.prot||0, btn.dataset.medida||'');
+});
 $('comerSearch').addEventListener('input', function(){ _comerModalQ = this.value; renderComerModalList(); });
 $('comerModalClose').addEventListener('click', closeComerModal);
 $('comerModal').addEventListener('click', e => { if (e.target === $('comerModal')) closeComerModal(); });
@@ -1248,6 +1280,7 @@ $('leitSave').addEventListener('click', saveLeitModal);
 $('leitCancel').addEventListener('click', closeLeitModal);
 $('leitModal').addEventListener('click', e => { if (e.target === $('leitModal')) closeLeitModal(); });
 $('leitPage').addEventListener('keydown', e => { if (e.key === 'Enter') saveLeitModal(); });
+['leitRemH','leitRemM'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') saveLeitModal(); }));
 $('editCancel').addEventListener('click', closeEditor);
 $('editDelete').addEventListener('click', deleteIntent);
 $('editModal').addEventListener('click', e=>{ if (e.target === $('editModal')) closeEditor(); });
