@@ -747,9 +747,20 @@ function openComerPortion(id, nome, baseProt, medida){
   _cmPortion = { id, nome, baseProt };
   $('cmPortionTitle').textContent = nome;
   $('cmPortionSub').textContent = (medida||'') + '  ·  1× = ' + baseProt + 'g';
-  const mults = [0.5, 1, 1.5, 2, 3];
-  $('cmPortionBtns').innerHTML = mults.map(m =>
-    `<button class="cm-pbtn ${m===1?'main':''}" data-mult="${m}"><b>${cmMultLabel(m)}</b><small>${Math.round(baseProt*m)}g</small></button>`).join('');
+  const cm = _lastSnap && _lastSnap.comer;
+  const item = cm && (cm.banco||[]).find(b => b.id===id);
+  const opts = item && item.opts;
+  if (opts && opts.length){
+    // opções próprias do item (ex.: leite em 150/200/250/300ml)
+    $('cmPortionBtns').innerHTML = opts.map(o => {
+      const lbl = o.ml ? (o.ml+'ml') : (o.label||'');
+      return `<button class="cm-pbtn ${o.ml===250?'main':''}" data-optprot="${o.prot||0}" data-optlabel="${escapeHtml(lbl)}"><b>${escapeHtml(lbl)}</b><small>${o.prot||0}g</small></button>`;
+    }).join('');
+  } else {
+    const mults = [0.5, 1, 1.5, 2, 3];
+    $('cmPortionBtns').innerHTML = mults.map(m =>
+      `<button class="cm-pbtn ${m===1?'main':''}" data-mult="${m}"><b>${cmMultLabel(m)}</b><small>${Math.round(baseProt*m)}g</small></button>`).join('');
+  }
   $('cmPortionExact').value = '';
   $('comerPortion').hidden = false;
 }
@@ -1258,6 +1269,8 @@ $('comerModalClose').addEventListener('click', closeComerModal);
 $('comerModal').addEventListener('click', e => { if (e.target === $('comerModal')) closeComerModal(); });
 // seletor de porção
 $('cmPortionBtns').addEventListener('click', e => {
+  const opt = e.target.closest('[data-optprot]');
+  if (opt && _cmPortion){ comerAddPortion(+opt.dataset.optprot||0, opt.dataset.optlabel||''); return; }
   const b = e.target.closest('[data-mult]'); if (!b || !_cmPortion) return;
   const m = +b.dataset.mult;
   comerAddPortion(Math.round(_cmPortion.baseProt * m), m===1 ? '' : cmMultLabel(m));
