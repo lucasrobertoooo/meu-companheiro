@@ -455,3 +455,6 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .leit-hm input{width:74px;background:var(--paper-2);border:1px solid var(--line);border-radius:10px;
   color:var(--ink);font-family:inherit;font-size:16px;padding:9px 10px;text-align:center}
 .leit-hm span{font-size:13px;color:var(--muted)}
+
+/* SKIN-FREQ-2026-08-18 · etiqueta de passo semanal (não é pendência diária) */
+.skin-stepfreq{display:inline-block;margin-left:6px;font-size:9.5px;font-weight:600;letter-spacing:.02em;padding:1px 6px;border-radius:99px;background:rgba(215,171,90,.16);color:#e3c07f;vertical-align:1px}

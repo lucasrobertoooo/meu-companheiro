@@ -205,11 +205,15 @@ function skinRoutine(rt, slot, label){
     <span class="skin-rtchev">${icon(open ? 'up' : 'down')}</span></button>`;
   if (!open) return `<div class="skin-rt">${head}</div>`;
   const rows = steps.length ? steps.map(st => {
-    const sub = (SKIN_LIB[st.type] || {}).name || '';
+    // SKIN-FREQ-2026-08-18 · passo de frequência semanal (retinoide) é marcado à parte e NÃO conta
+    // como pendência do dia — o Mac só conta os diários (freq>=7).
+    const fq = (st.freq == null) ? 7 : st.freq;
+    const freqTag = fq >= 7 ? '' : `<span class="skin-stepfreq">${fq === 1 ? '1×/sem' : fq + '×/sem'}</span>`;
+    const sub = [(SKIN_LIB[st.type] || {}).name || '', st.product || ''].filter(Boolean).join(' · ');
     return `<div class="skin-step ${st.done ? 'done' : ''}">
       <button class="prio-chk ${st.done ? 'on' : ''}" data-ev="skincare.step" data-rt="${rt}" data-title="${escapeHtml(st.title)}" data-done="${st.done ? 1 : 0}" aria-label="marcar passo">${st.done ? icon('check') : ''}</button>
       <button class="skin-stepmain" data-ev="skin.info" data-type="${escapeHtml(st.type || '')}" data-title="${escapeHtml(st.title)}">
-        <span class="skin-steptitle">${escapeHtml(st.title)}</span>${sub ? `<span class="skin-stepsub">${escapeHtml(sub)}</span>` : ''}<span class="skin-stepinfo">${icon('info')}</span>
+        <span class="skin-steptitle">${escapeHtml(st.title)}${freqTag}</span>${sub ? `<span class="skin-stepsub">${escapeHtml(sub)}</span>` : ''}<span class="skin-stepinfo">${icon('info')}</span>
       </button>
     </div>`;
   }).join('') : `<div class="todo-empty">sem passos habilitados</div>`;
@@ -267,7 +271,8 @@ function comerBody(cm){
   const lg = cm.log || [];
   if (lg.length){
     h += `<div class="cm-lbl">hoje</div><div class="cm-log">`;
-    h += lg.map(x => `<div class="cm-lrow"><span>${escapeHtml(x.nome)}</span><small>${escapeHtml(x.t||'')}</small><i>+${x.prot}g</i><button class="cm-lx" data-ev="comer.undo" data-t="${escapeHtml(x.t||'')}">×</button></div>`).join('');
+    // COMER-UNDO-IDX-2026-08-18 · leva o ÍNDICE (x.i): o horário é ambíguo (refeição inteira no mesmo minuto)
+    h += lg.map((x, k) => `<div class="cm-lrow"><span>${escapeHtml(x.nome)}</span><small>${escapeHtml(x.t||'')}</small><i>+${x.prot}g</i><button class="cm-lx" data-ev="comer.undo" data-t="${escapeHtml(x.t||'')}" data-idx="${x.i || (k+1)}">×</button></div>`).join('');
     h += `</div>`;
   }
   return h;
@@ -293,7 +298,7 @@ function optimisticSkinStep(rt, title){
   const slot = _lastSnap && _lastSnap.skincare && _lastSnap.skincare[rt]; if (!slot || !Array.isArray(slot.steps)) return;
   const st = slot.steps.find(x => x.title === title); if (!st) return;
   st.done = !st.done;
-  slot.done = slot.steps.filter(x => x.done).length;
+  slot.done = slot.steps.filter(x => x.done && ((x.freq == null ? 7 : x.freq) >= 7)).length;  // SKIN-FREQ-2026-08-18 · só diários, como o Mac
   slot.complete = slot.total > 0 && slot.done >= slot.total;
   render(_lastSnap);
 }
@@ -1167,13 +1172,16 @@ const onCardClick = async (e) => {
     return;
   }
   if (ev === 'comer.undo'){
+    // COMER-UNDO-IDX-2026-08-18 · casa pelo índice (o `t` vira só conferência no Mac). Antes o celular
+    // removia a PRIMEIRA entrada daquele minuto e o Mac removia a ÚLTIMA → apagava item errado.
     const t = btn.dataset.t;
+    const idx = Number(btn.dataset.idx) || null;
     const cm = _lastSnap && _lastSnap.comer;
-    const entry = cm && (cm.log||[]).find(x => x.t === t);
+    const entry = cm && (cm.log||[]).find(x => (idx && x.i === idx) || (!idx && x.t === t));
     optimisticComer(entry ? -(entry.prot||0) : 0);
     if (cm) cm.log = (cm.log||[]).filter(x => x !== entry);
     render(_lastSnap);
-    try{ await postEvent({ type:'comer.undo', t }); schedulePrioRefresh(); }
+    try{ await postEvent({ type:'comer.undo', t, idx }); schedulePrioRefresh(); }
     catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
     return;
   }
