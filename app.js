@@ -1012,8 +1012,13 @@ let _dayMood = null;
 function openDayModal(){
   const dl = _lastSnap && _lastSnap.daylog;
   _dayMood = (dl && dl.mood) || null;
-  $('dayNote').value = '';
-  $('dayCap').value = '';
+  // DAYLOG-MERGE-2026-08-19 · PRÉ-POPULA com o que já foi escrito (inclusive no Mac). Antes abria vazio e
+  // o "revisar" mandava texto em branco, apagando o registro do dia no arquivo sagrado.
+  $('dayNote').value = (dl && dl.wellDone) || '';
+  $('dayCap').value = (dl && dl.capText) || '';
+  // aviso quando o dia foi fechado no modo completo no Mac (aprendizado/faria diferente ficam só lá)
+  const fw = $('dayFullWarn');
+  if (fw) fw.hidden = !(dl && dl.hasFull);
   [...document.querySelectorAll('#dayMoods .dmood')].forEach(b => b.classList.toggle('on', b.dataset.mood === _dayMood));
   $('daySave').disabled = !_dayMood;
   $('dayModal').hidden = false;
@@ -1026,7 +1031,8 @@ function saveDayModal(){
   closeDayModal();
   _pending['daylog'] = true;              // pendente até o snapshot confirmar (hub aplica)
   if (_lastSnap) render(_lastSnap);
-  postEvent({ type:'daylog.close', mood:_dayMood, wellDone, capText })
+  // `prefilled` avisa o Mac que este cliente abriu o modal já preenchido → limpar de propósito funciona.
+  postEvent({ type:'daylog.close', mood:_dayMood, wellDone, capText, prefilled:true })
     .then(() => { [6, 14, 24, 34].forEach(s => setTimeout(refresh, s * 1000)); })
     .catch(err => { delete _pending['daylog']; flashError(err.message || 'falha ao enviar'); if (_lastSnap) render(_lastSnap); });
 }

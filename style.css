@@ -458,3 +458,6 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 
 /* SKIN-FREQ-2026-08-18 · etiqueta de passo semanal (não é pendência diária) */
 .skin-stepfreq{display:inline-block;margin-left:6px;font-size:9.5px;font-weight:600;letter-spacing:.02em;padding:1px 6px;border-radius:99px;background:rgba(215,171,90,.16);color:#e3c07f;vertical-align:1px}
+
+/* DAYLOG-MERGE-2026-08-19 */
+.day-fullwarn{margin:8px 0 0;font-size:11.5px;line-height:1.4;color:var(--muted,#8c8c94);background:rgba(215,171,90,.10);border-left:2px solid #d7ab5a;border-radius:4px;padding:7px 9px}
