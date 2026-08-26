@@ -472,3 +472,9 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 
 /* PARIDADE-LEITURA-2026-08-24 · ritmo/estimativa no card do livro */
 .book-ritmo{margin-top:3px;font-size:10.5px;color:var(--muted,#8c8c94);opacity:.85}
+
+/* FRESCOR-2026-08-24 · aviso de snapshot defasado */
+.stale{color:#e8b98f;font-weight:600}
+
+/* FILA-OFFLINE-2026-08-24 · aviso de marcações aguardando conexão */
+.fila-aviso{margin:6px 0 0;padding:6px 10px;border-radius:8px;background:rgba(215,171,90,.12);border-left:2px solid #d7ab5a;font-size:11px;color:#e3c07f}

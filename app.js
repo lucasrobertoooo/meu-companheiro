@@ -105,10 +105,28 @@ async function fetchRepoFile(path){
 }
 
 /* ---------- escrita de evento (celular → inbox do repo) ---------- */
+// FRESCOR-2026-08-24 · idade do BATIMENTO do Mac (snap.pub, truncado em blocos de 6h). O `ts` não serve:
+// ele só muda quando o CONTEÚDO muda, então um dia parado pareceria "Mac desligado".
+// Retorna horas, ou null se o snapshot é antigo demais pra ter o campo.
+function idadeBatimentoH(snap){
+  const s = snap || _lastSnap;
+  if (!s || !s.pub) return null;
+  const t = Date.parse(s.pub);
+  if (isNaN(t)) return null;
+  return (Date.now() - t) / 3600000;
+}
+const DEFASADO_H = 12;   // 2 blocos de 6h sem publicar = o Mac provavelmente está desligado
+function snapshotDefasado(snap){
+  const h = idadeBatimentoH(snap);
+  return h != null && h > DEFASADO_H;
+}
+
 function todayStr(){
   // DAYSYNC-2026-07-16 · usa o dia LÓGICO do Mac (snap.date) como fonte ÚNICA — evita o celular e o Mac
   // discordarem do "hoje" (corte 4h + cache do app causavam eventos no dia errado). Fallback: corte 4h local.
-  if (_lastSnap && _lastSnap.date) return _lastSnap.date;
+  // FRESCOR-2026-08-24 · MAS se o snapshot está defasado (Mac desligado há +12h), confiar no snap.date
+  // DATA O EVENTO NO DIA ERRADO — aí é melhor cair no corte local.
+  if (_lastSnap && _lastSnap.date && !snapshotDefasado(_lastSnap)) return _lastSnap.date;
   const d = new Date(Date.now() - 4*3600*1000);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
@@ -118,23 +136,79 @@ function uuid(){
 }
 // cria inbox/{uuid}.json no repo via Contents API (arquivo novo = zero conflito de escrita).
 // PRECISA de token com Contents: Read AND Write (o de leitura dá 403 aqui).
-async function postEvent(partial){
+/* FILA-OFFLINE-2026-08-24 · antes, evento criado sem rede simplesmente SUMIA: o postEvent falhava, um
+   flash de 3s aparecia e pronto — o "inbox de eventos" só funcionava online. Agora falha de REDE guarda
+   o evento numa fila local e reenvia sozinho (ao voltar a conexão, ao abrir o app e a cada refresh).
+   O evento já nasce com id e data — reenviar é seguro: o Mac deduplica por id (mobileSeen/HANDLERS).
+   Erro de PERMISSÃO (401/403) não entra na fila: reenviar não resolveria, o token é que está errado. */
+const FILA_KEY = 'companheiro_fila_eventos';
+function filaLer(){ try{ return JSON.parse(localStorage.getItem(FILA_KEY) || '[]'); }catch{ return []; } }
+function filaGravar(f){ try{ localStorage.setItem(FILA_KEY, JSON.stringify(f.slice(-200))); }catch{} }
+function filaTamanho(){ return filaLer().length; }
+function filaEnfileirar(evt){
+  const f = filaLer();
+  if (!f.some(e => e.id === evt.id)) { f.push(evt); filaGravar(f); }
+  renderFilaAviso();
+}
+
+async function enviarEvento(evt){
   const cfg = getCfg();
   if (!cfg || !cfg.repo || !cfg.pat) throw new Error('conecte o token primeiro (engrenagem)');
   const [owner, repo] = cfg.repo.split('/');
-  const id = uuid();
-  const evt = { id, ts: Math.floor(Date.now()/1000), date: todayStr(), source: 'mobile', v: 1, ...partial };
-  const json = JSON.stringify(evt);
-  const b64 = btoa(unescape(encodeURIComponent(json)));   // base64 utf-8-safe
-  const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/inbox/${id}.json`, {
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(evt))));   // base64 utf-8-safe
+  const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/inbox/${evt.id}.json`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${cfg.pat}`, Accept: 'application/vnd.github+json' },
     body: JSON.stringify({ message: `evt ${evt.type}`, content: b64, branch: 'main' }),
   });
-  if (r.status === 401 || r.status === 403) throw new Error('token sem permissão de escrita');
+  if (r.status === 401 || r.status === 403) { const e = new Error('token sem permissão de escrita'); e.semRetry = true; throw e; }
+  if (r.status === 422) return true;   // já existe no repo = já entregue
   if (!r.ok) throw new Error('GitHub ' + r.status);
   return true;
 }
+
+async function postEvent(partial){
+  const evt = { id: uuid(), ts: Math.floor(Date.now()/1000), date: todayStr(), source: 'mobile', v: 1, ...partial };
+  try {
+    const r = await enviarEvento(evt);
+    filaDrenar();            // aproveita que a rede está boa pra escoar o que ficou pra trás
+    return r;
+  } catch (err) {
+    if (err && err.semRetry) throw err;                 // token errado: reenviar não resolve
+    if (!getCfg() || !getCfg().pat) throw err;          // sem token: idem
+    // Enfileirou: NÃO lança. Se lançasse, cada handler desfaria a marcação otimista e o usuário veria o
+    // item desmarcar sozinho — mesmo com o evento salvo. A UI segue marcada e a faixa "N aguardando
+    // conexão" conta a verdade; quando a rede voltar, o dreno entrega e o snapshot confirma.
+    filaEnfileirar(evt);
+    try{ flashError('sem conexão — guardado, envia sozinho'); }catch(e2){}
+    return true;
+  }
+}
+
+let _drenando = false;
+async function filaDrenar(){
+  if (_drenando) return;
+  const f = filaLer();
+  if (!f.length) return;
+  _drenando = true;
+  const restantes = [];
+  for (const evt of f) {
+    try { await enviarEvento(evt); }
+    catch (err) { if (err && err.semRetry) { restantes.push(evt); break; } restantes.push(evt); }
+  }
+  filaGravar(restantes);
+  _drenando = false;
+  renderFilaAviso();
+  if (restantes.length < f.length) refresh();           // algo entrou: puxa o estado novo
+}
+
+function renderFilaAviso(){
+  const el = $('filaAviso'); if (!el) return;
+  const n = filaTamanho();
+  el.hidden = n === 0;
+  if (n) el.textContent = `${n} ${n === 1 ? 'marcação aguardando' : 'marcações aguardando'} conexão · reenvia sozinho`;
+}
+window.addEventListener('online', () => { filaDrenar(); });
 
 /* ---------- render ---------- */
 function renderHero(c){
@@ -807,6 +881,15 @@ let _comerModalQ = '';
 
 function renderFreshness(snap){
   const el = $('freshness');
+  // FRESCOR-2026-08-24 · avisa quando o Mac não publica há muito (antes mostrava só "atualizado 14:32",
+  // e um snapshot de 3 dias parecia fresco).
+  const _h = idadeBatimentoH(snap);
+  if (_h != null && _h > DEFASADO_H){
+    const dias = Math.floor(_h / 24);
+    el.innerHTML = `<span class="stale">⚠ sem sincronizar há ${dias >= 1 ? dias + (dias === 1 ? ' dia' : ' dias') : Math.round(_h) + 'h'} · o Mac pode estar desligado</span>`;
+    el.title = 'Enquanto isso, o que você marcar entra com a data de hoje do celular.';
+    return;
+  }
   if (!snap.ts){ el.textContent = snap.date || ''; return; }
   const d = new Date(snap.ts * 1000);
   const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
@@ -814,6 +897,7 @@ function renderFreshness(snap){
 }
 
 function render(snap){
+  try{ renderFilaAviso(); }catch(e){}   // FILA-OFFLINE-2026-08-24
   _lastSnap = snap;
   document.body.classList.remove('loading', 'needcfg');
   renderFreshness(snap);
@@ -828,6 +912,7 @@ function render(snap){
 let _timer = null, _lastRendered = null;
 function stripTs(snap){ const c = { ...snap }; delete c.ts; return JSON.stringify(c); }
 async function refresh(){
+  try{ filaDrenar(); }catch(e){}       // FILA-OFFLINE-2026-08-24 · escoa o que ficou offline
   if (_dragging) return;                 // não repinta no meio de um arraste
   try{
     const snap = await fetchSnapshot();
