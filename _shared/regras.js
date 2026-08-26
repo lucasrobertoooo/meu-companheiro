@@ -146,6 +146,28 @@
   }
   function humor3(key) { return HUMOR3[key] || 'neutro'; }
 
+
+  /* ---------- criatura: fase do dia e vitalidade ---------------------------
+     `fasePorHora` é pura (só depende da hora) e define o "momento" da criatura —
+     hoje só o widget usa, mas fica aqui pra qualquer lado poder calcular igual.
+     `contarVitalidade` recebe as dimensões JÁ resolvidas (quem lê o estado é
+     cada lado) e devolve a contagem — o que evita a conta divergir. */
+  var FASES = { dormencia: [22, 6], despertar: [6, 11], ativa: [11, 17], recolher: [17, 22] };
+  function fasePorHora(h) {
+    h = Number(h); if (isNaN(h)) h = 0;
+    if (h >= 22 || h < 6) return 'dormencia';
+    if (h < 11) return 'despertar';
+    if (h < 17) return 'ativa';
+    return 'recolher';
+  }
+  var DIMS_VITALIDADE = ['corpo', 'mente', 'reflexao', 'agua', 'cultura'];
+  function contarVitalidade(dims) {
+    dims = dims || {};
+    var lit = 0;
+    DIMS_VITALIDADE.forEach(function (k) { if (dims[k]) lit++; });
+    return { lit: lit, total: DIMS_VITALIDADE.length, dims: dims };
+  }
+
   raiz.Regras = {
     versao: '2026-08-24',
     ymdDe: ymdDe, hoje: hoje, diasEntre: diasEntre,
@@ -154,6 +176,7 @@
     resumoFinanceiro: resumoFinanceiro,
     NIVEIS: NIVEIS, FORMA_ARTE: FORMA_ARTE, HUMOR_EMOJI: HUMOR_EMOJI,
     nivelDe: nivelDe, infoNivel: infoNivel, formaDe: formaDe,
-    humorKey: humorKey, humor3: humor3
+    humorKey: humorKey, humor3: humor3,
+    fasePorHora: fasePorHora, contarVitalidade: contarVitalidade, DIMS_VITALIDADE: DIMS_VITALIDADE
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

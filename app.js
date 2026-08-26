@@ -217,7 +217,14 @@ function renderHero(c){
   const src = CREATURE_ART[String(form)] || CREATURE_ART['1'];
   if (src && img.getAttribute('src') !== src) img.setAttribute('src', src);
   $('aura').style.setProperty('--auraColor', AURA[c.prestige] || AURA.normal);
-  $('moodEmoji').innerHTML = icon(c.moodKey === 'radiante' ? 'sun' : 'moon');
+  // HUMOR-5-2026-08-24 · o app colapsava os 5 humores em sol(radiante)/lua(todo o resto) — "com fome" e
+  // "se escondeu" ficavam visualmente iguais a "tranquilo". O snapshot já mandava moodEmoji; agora usa.
+  const _me = $('moodEmoji');
+  if (c.moodEmoji) { _me.textContent = c.moodEmoji; }
+  else { _me.innerHTML = icon(c.moodKey === 'radiante' ? 'sun' : 'moon'); }
+  _me.title = { radiante:'radiante — você cuidou dele hoje', tranquilo:'tranquilo',
+                fome:'com fome — dias sem treino', escondido:'se escondeu — faz tempo',
+                neutro:'à espreita' }[c.moodKey] || '';
   $('crName').textContent = c.name || 'Companheiro';
   $('crLevel').textContent = `${c.levelName || ''} · nível ${c.level ?? '—'}`;
   const pct = Math.round((c.levelProgress || 0) * 100);
@@ -347,6 +354,8 @@ function comerBody(cm){
   // log de hoje
   // PARIDADE-COMER-2026-08-24 · faixa do coach de recomposição (só existia no Mac)
   if (cm.coach && cm.coach.txt) h += `<div class="cm-coach">${cm.coach.status && cm.coach.status !== 'coletando' ? '<b>coach:</b> ' : ''}${escapeHtml(cm.coach.txt)}</div>`;
+  // PESO-MOBILE-2026-08-24 · o coach pede peso; agora dá pra registrar daqui (era só no Mac)
+  h += `<button class="cm-peso" data-ev="comer.peso">⚖ ${cm.peso ? `${cm.peso} kg` : 'registrar peso'}${cm.pesoEm ? ` <small>· ${escapeHtml(cm.pesoEm)}</small>` : ''}</button>`;
   const lg = cm.log || [];
   if (lg.length){
     h += `<div class="cm-lbl">hoje</div><div class="cm-log">`;
@@ -741,9 +750,18 @@ function renderCards(snap){
   // MOBILIDADE — toggle: marca / desfaz.
   if (snap.doneToday){
     const done = !!snap.doneToday.mobilidade, pend = pendingFor('mobilidade', done);
-    const lbl = pend ? 'enviando…' : (done ? 'treino feito hoje ✓ · desfazer' : 'marcar treino de mobilidade');
+    // UNDO-FANTASMA-2026-08-24 · check-in feito no MobiApp não pode ser desfeito daqui (o handler só mexe
+    // no arquivo do celular) — então o rótulo não promete o que não cumpre.
+    const ownMob = snap.mobiOwnHoje !== false;
+    const lbl = pend ? 'enviando…'
+      : (done ? (ownMob ? 'treino feito hoje ✓ · desfazer' : 'treino feito hoje ✓ (marcado no Mac)')
+              : 'marcar treino de mobilidade');
+    // MOBI-AB-2026-08-24 · desde o SESSAO-FOCO (12/08) a sessão é A pernas / B flexão / leve, e o card do
+    // celular ainda dizia só "marcar treino" — não sabia qual era o foco de hoje.
+    const foco = (snap.mobi && snap.mobi.focoLabel)
+      ? `<div class="mobi-foco">hoje: <b>${escapeHtml(snap.mobi.focoLabel)}</b>${snap.mobi.semanaA != null ? ` <small>· A ${snap.mobi.semanaA} · B ${snap.mobi.semanaB} na semana</small>` : ''}</div>` : '';
     daily.push({ key:'mob', title:'Mobilidade', ic:icon('mobilidade'), badge:'',
-      body:`<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="mobilidade" data-done="${done?1:0}" ${pend?'disabled':''}>${lbl}</button>`,
+      body:`${foco}<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="mobilidade" data-done="${done?1:0}" ${(pend||(done&&!ownMob))?'disabled':''}>${lbl}</button>`,
       done, mini:'treino feito' });
   }
 
@@ -759,7 +777,10 @@ function renderCards(snap){
   // PÉLVICO — 3 slots; toca pra marcar, toca de novo pra desfazer (só os marcados pelo celular).
   if (snap.pelvico){
     const pv = snap.pelvico, n = pv.done||0, tot = pv.total||3, done = n >= tot;
-    const undo = n > 0 ? `<button class="pv-undo" data-ev="pelvico.undo">−1</button>` : '';
+    // UNDO-FANTASMA-2026-08-24 · só dá pra desfazer o que o CELULAR marcou. Antes o "−1" aparecia sempre
+    // que o total > 0 — e se a sessão tinha vindo do Mac, ele decrementava a UI e voltava no refresh.
+    const own = (pv.own == null) ? n : pv.own;
+    const undo = own > 0 ? `<button class="pv-undo" data-ev="pelvico.undo">−1</button>` : '';
     const body = `<div class="pv-count"><b>${n}</b> de ${tot} sessões hoje${done?' · meta batida 🎉':''}</div>`+
       `<div class="pv-btns"><button class="mark-btn" data-ev="pelvico.add">+1 sessão feita</button>${undo}</div>`;
     daily.push({ key:'pelv', title:'Pélvico', ic:icon('pelvico'), badge:`${n}/${tot}`, body, done, mini:`${n}/${tot}` });
@@ -1290,6 +1311,23 @@ const onCardClick = async (e) => {
     render(_lastSnap);
     try{ await postEvent({ type:'comer.undo', t, idx }); schedulePrioRefresh(); }
     catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    return;
+  }
+  if (ev === 'comer.peso'){
+    // PESO-MOBILE-2026-08-24 · prompt simples: é registro semanal, não vale uma tela inteira.
+    const cm = _lastSnap && _lastSnap.comer;
+    const kg = prompt('Peso de hoje (kg):', cm && cm.peso ? String(cm.peso) : '');
+    if (kg === null) return;
+    const n = parseFloat(String(kg).replace(',', '.'));
+    if (!n || n <= 0 || n > 400) { flashError('peso inválido'); return; }
+    const cin = prompt('Cintura (cm) — opcional, deixe vazio pra pular:', cm && cm.cintura ? String(cm.cintura) : '');
+    try{
+      await postEvent({ type:'comer.peso', kg:n });
+      const c = cin === null ? null : parseFloat(String(cin).replace(',', '.'));
+      if (c && c > 0 && c < 300) await postEvent({ type:'comer.cintura', cm:c });
+      flashError('registrado · a meta reescala sozinha');
+      schedulePrioRefresh();
+    }catch(err){ flashError(err.message || 'falha ao enviar'); }
     return;
   }
   if (ev === 'comer.meal'){ _comerMeal = btn.dataset.meal; if (_lastSnap) render(_lastSnap); return; }
