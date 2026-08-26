@@ -658,7 +658,9 @@ function renderCards(snap){
     const done = !!snap.doneToday.meditacao, pend = pendingFor('meditacao', done);
     const lbl = pend ? 'enviando…' : (done ? 'atenção feita hoje ✓ · desfazer' : 'marcar atenção do dia');
     daily.push({ key:'med', title:'Atenção / Meditação', ic:icon('meditacao'), badge:'',
-      body:`<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="meditacao" data-done="${done?1:0}" ${pend?'disabled':''}>${lbl}</button>`,
+      // PARIDADE-MEDIT-2026-08-24 · a prática do dia (rotação que escolhe pro sábado justamente a que
+      // "cabe sem laptop") agora vem no snapshot e aparece aqui.
+      body:`${(snap.meditacao&&snap.meditacao.practice)?`<div class="med-pratica">${escapeHtml(snap.meditacao.practice.emoji||'')} <b>${escapeHtml(snap.meditacao.practice.label||'')}</b>${snap.meditacao.practice.durationSec?` · ${Math.round(snap.meditacao.practice.durationSec/60)} min`:''}</div>`:''}<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="meditacao" data-done="${done?1:0}" ${pend?'disabled':''}>${lbl}</button>`,
       done, mini:'feito' });
   }
 
@@ -701,12 +703,16 @@ function renderCards(snap){
       let meta;
       if (b.audio && tot > 0){ meta = `faltam <b>${fmtDur(Math.max(0, tot - cur))}</b> · <b>${pct}%</b>`; }
       else meta = tot > 0 ? `${unit} <b>${cur}</b> de <b>${tot}</b> · <b>${pct}%</b>` : `${unit} <b>${cur}</b>`;
+      // PARIDADE-LEITURA-2026-08-24 · ritmo e estimativa de término só existiam no Mac
+      const ritmo = (b.porDia && b.diasFalta != null)
+        ? `<div class="book-ritmo">${b.audio ? fmtDur(b.porDia) : b.porDia + ' ' + unit}/dia · termina em ~${b.diasFalta} dia${b.diasFalta === 1 ? '' : 's'}</div>` : '';
       const dataAttrs = `data-book="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}" data-cur="${cur}" data-tot="${tot}" data-audio="${b.audio?1:0}"`;
       return `<div class="book-card ${pend?'wait':(b.done?'done':'')}">
         <div class="book-top">
           <button class="book-main" data-ev="leit.log" ${dataAttrs}>
             <div class="book-t">${escapeHtml(b.title)}</div>
             ${b.author ? `<div class="book-a">${escapeHtml(b.author)}</div>` : ''}
+            ${ritmo}
           </button>
           <button class="book-chk ${b.done?'on':''}" data-ev="leitura" data-book="${escapeHtml(b.id)}" data-done="${b.done?1:0}" ${pend?'disabled':''} aria-label="li hoje">${pend?'…':(b.done?'✓':'')}</button>
         </div>
