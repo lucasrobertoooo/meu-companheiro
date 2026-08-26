@@ -127,7 +127,12 @@ function todayStr(){
   // FRESCOR-2026-08-24 · MAS se o snapshot está defasado (Mac desligado há +12h), confiar no snap.date
   // DATA O EVENTO NO DIA ERRADO — aí é melhor cair no corte local.
   if (_lastSnap && _lastSnap.date && !snapshotDefasado(_lastSnap)) return _lastSnap.date;
-  const d = new Date(Date.now() - 4*3600*1000);
+  // REVISAO-2026-08-26 · o corte é CONFIGURÁVEL no Mac (0-12h) e aqui estava chumbado em 4h. Com o
+  // FRESCOR, este fallback virou caminho quente — datar errado entre o corte antigo e o novo era real.
+  // Usa o corte que veio no snapshot (mesmo que velho, é o que o Mac usa) e o cálculo do núcleo.
+  const corte = (_lastSnap && typeof _lastSnap.corteH === 'number') ? _lastSnap.corteH : 4;
+  if (globalThis.Regras && Regras.hoje) return Regras.hoje(corte);
+  const d = new Date(Date.now() - corte*3600*1000);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 function uuid(){
@@ -143,12 +148,18 @@ function uuid(){
    Erro de PERMISSÃO (401/403) não entra na fila: reenviar não resolveria, o token é que está errado. */
 const FILA_KEY = 'companheiro_fila_eventos';
 function filaLer(){ try{ return JSON.parse(localStorage.getItem(FILA_KEY) || '[]'); }catch{ return []; } }
-function filaGravar(f){ try{ localStorage.setItem(FILA_KEY, JSON.stringify(f.slice(-200))); }catch{} }
+function filaGravar(f){
+  // REVISAO-2026-08-26 · devolve se conseguiu gravar. Antes engolia a falha com catch vazio e o
+  // postEvent retornava true assim mesmo — a UI dava por feito algo que não foi guardado em lugar nenhum.
+  try{ localStorage.setItem(FILA_KEY, JSON.stringify(f.slice(-200))); return true; }catch{ return false; }
+}
 function filaTamanho(){ return filaLer().length; }
 function filaEnfileirar(evt){
   const f = filaLer();
-  if (!f.some(e => e.id === evt.id)) { f.push(evt); filaGravar(f); }
+  let ok = true;
+  if (!f.some(e => e.id === evt.id)) { f.push(evt); ok = filaGravar(f); }
   renderFilaAviso();
+  return ok;
 }
 
 async function enviarEvento(evt){
@@ -163,6 +174,9 @@ async function enviarEvento(evt){
   });
   if (r.status === 401 || r.status === 403) { const e = new Error('token sem permissão de escrita'); e.semRetry = true; throw e; }
   if (r.status === 422) return true;   // já existe no repo = já entregue
+  // REVISAO-2026-08-26 · 4xx que não é auth (404 repo/branch errado, 400 payload) NÃO se resolve
+  // reenviando — ficaria na fila pra sempre, com a faixa mentindo "aguardando conexão".
+  if (r.status >= 400 && r.status < 500) { const e = new Error('GitHub ' + r.status); e.permanente = true; throw e; }
   if (!r.ok) throw new Error('GitHub ' + r.status);
   return true;
 }
@@ -179,27 +193,42 @@ async function postEvent(partial){
     // Enfileirou: NÃO lança. Se lançasse, cada handler desfaria a marcação otimista e o usuário veria o
     // item desmarcar sozinho — mesmo com o evento salvo. A UI segue marcada e a faixa "N aguardando
     // conexão" conta a verdade; quando a rede voltar, o dreno entrega e o snapshot confirma.
-    filaEnfileirar(evt);
+    if (!filaEnfileirar(evt)) { const e = new Error('sem conexão e não deu pra guardar — tente de novo'); throw e; }
     try{ flashError('sem conexão — guardado, envia sozinho'); }catch(e2){}
     return true;
   }
 }
 
 let _drenando = false;
+/* REVISAO-2026-08-26 · a 1ª versão montava `restantes` e gravava por cima da fila inteira. Dois furos:
+   (a) o `break` do erro de auth saía do laço e os eventos SEGUINTES nunca entravam em `restantes` →
+       eram APAGADOS pelo filaGravar (perda silenciosa, e a faixa mostrava número menor como se tivessem
+       sido entregues); (b) o que fosse enfileirado DURANTE os awaits era sobrescrito pelo snapshot velho.
+   Agora remove um a um, relendo a fila a cada entrega — nada é perdido por sobrescrita. */
 async function filaDrenar(){
   if (_drenando) return;
-  const f = filaLer();
-  if (!f.length) return;
+  const fila = filaLer();
+  if (!fila.length) return;
   _drenando = true;
-  const restantes = [];
-  for (const evt of f) {
-    try { await enviarEvento(evt); }
-    catch (err) { if (err && err.semRetry) { restantes.push(evt); break; } restantes.push(evt); }
-  }
-  filaGravar(restantes);
-  _drenando = false;
+  let entregues = 0;
+  try {
+    for (const evt of fila) {
+      try {
+        await enviarEvento(evt);
+        filaGravar(filaLer().filter(e => e.id !== evt.id));   // relê: preserva quem chegou no meio
+        entregues++;
+      } catch (err) {
+        if (err && err.permanente) {                          // 4xx não-auth: reenviar não resolve
+          filaGravar(filaLer().filter(e => e.id !== evt.id));
+          console.warn('evento descartado (erro permanente):', evt.type, err.message);
+          continue;
+        }
+        break;                                                // auth ou rede: para e MANTÉM o resto
+      }
+    }
+  } finally { _drenando = false; }
   renderFilaAviso();
-  if (restantes.length < f.length) refresh();           // algo entrou: puxa o estado novo
+  if (entregues) refresh();
 }
 
 function renderFilaAviso(){
@@ -959,7 +988,16 @@ function showOnboarding(){
 }
 function startLoop(){ if (_timer) clearInterval(_timer); refresh(); _timer = setInterval(refresh, POLL_MS); }
 function showError(msg){ $('cards').innerHTML = `<div class="state-msg err">${escapeHtml(msg)}</div>`; }
-function flashError(msg){ const f=$('freshness'); const old=f.textContent; f.textContent=msg; setTimeout(()=>{f.textContent=old;},3000); }
+/* FLASH-2026-08-26 · dois erros dentro da mesma janela de 3s se aninhavam: o segundo capturava a MENSAGEM
+   DE ERRO do primeiro como "texto original" e restaurava ela — a mensagem de erro ficava grudada no lugar
+   do frescor pra sempre. Agora só a primeira chamada guarda o original e o timer é único. */
+let _flashTimer = null, _flashOrig = null;
+function flashError(msg){
+  const f = $('freshness'); if (!f) return;
+  if (_flashTimer) clearTimeout(_flashTimer); else _flashOrig = f.textContent;
+  f.textContent = msg;
+  _flashTimer = setTimeout(() => { f.textContent = _flashOrig; _flashTimer = null; _flashOrig = null; }, 3000);
+}
 
 /* ---------- push nativo (iOS 16.4+ · precisa do app instalado na tela inicial) ---------- */
 const VAPID_PUBLIC = 'BMxE9r6DrUygHVJkhr2sDXSyeguI7zzeDeunLkOgY2qZr7lS52logWdLOCblLdmuiFm6TweBneHldcQ_V4Wfhag';

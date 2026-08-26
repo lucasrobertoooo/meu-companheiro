@@ -152,13 +152,15 @@
      hoje só o widget usa, mas fica aqui pra qualquer lado poder calcular igual.
      `contarVitalidade` recebe as dimensões JÁ resolvidas (quem lê o estado é
      cada lado) e devolve a contagem — o que evita a conta divergir. */
-  var FASES = { dormencia: [22, 6], despertar: [6, 11], ativa: [11, 17], recolher: [17, 22] };
+  /* REVISAO-2026-08-26 · a tabela FASES existia mas a função usava literais soltos — armadilha de
+     divergência DENTRO do arquivo que existe pra evitar divergência. Agora a tabela é a fonte. */
+  var FASES = [['dormencia', 22, 24], ['dormencia', 0, 6], ['despertar', 6, 11], ['ativa', 11, 17], ['recolher', 17, 22]];
   function fasePorHora(h) {
     h = Number(h); if (isNaN(h)) h = 0;
-    if (h >= 22 || h < 6) return 'dormencia';
-    if (h < 11) return 'despertar';
-    if (h < 17) return 'ativa';
-    return 'recolher';
+    for (var i = 0; i < FASES.length; i++) {
+      if (h >= FASES[i][1] && h < FASES[i][2]) return FASES[i][0];
+    }
+    return 'ativa';
   }
   var DIMS_VITALIDADE = ['corpo', 'mente', 'reflexao', 'agua', 'cultura'];
   function contarVitalidade(dims) {

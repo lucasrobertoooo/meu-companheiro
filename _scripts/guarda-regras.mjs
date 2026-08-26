@@ -15,8 +15,8 @@
    streak de leitura, dose do retinoide e resumo do financeiro.
    =========================================================================== */
 import { execFileSync } from 'node:child_process';
-import { writeFileSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -145,6 +145,29 @@ let lua;
 try { lua = JSON.parse(execFileSync('lua', [arq], { encoding: 'utf8' }).trim()); }
 catch (e) { console.error('✗ não deu pra rodar o lado Lua:', e.message); process.exit(1); }
 
+/* ---- SENTINELAS · REVISAO-2026-08-26 ------------------------------------
+   Limite honesto deste guarda: o "lado Lua" acima é uma TRANSCRIÇÃO dos módulos,
+   não os módulos em si (eles precisam do runtime do Hammerspoon). Então ele pega
+   divergência quando o JS muda — mas não quando alguém edita o LUA e esquece de
+   atualizar a transcrição. As sentinelas cobrem esse furo: se a expressão-chave
+   sumir do arquivo real, o guarda falha pedindo pra revisar a transcrição. */
+const HS = join(homedir(), '.hammerspoon');
+const SENTINELAS = [
+  ['companheiro_inbox.lua', /gap\s*==\s*1\s+or\s+gap\s*==\s*2/,        'streak de leitura com carência de 1 dia'],
+  ['companheiro_inbox.lua', /freqOf\(st\)\s*>=\s*7/,                      'skincare: passo do dia = freq>=7'],
+  ['financeiro.lua',        /tenho\s*\+\s*pending\.Receber\s*-\s*previsto\s*-\s*pending\.Investir/, 'financeiro: fórmula da sobra'],
+  ['companheiro_sync.lua',  /if ds == 2 then return "fome" end/,            'criatura: humor "fome" em 2 dias'],
+  ['companheiro_sync.lua',  /radiante="✨"/,                                 'criatura: emoji do humor'],
+  ['companheiro_sync.lua',  /local LEVELS\s*=\s*\{0,500,1000,2000,3000,4000,5000,7000,10000,20000\}/, 'criatura: tabela de níveis'],
+];
+let sentinelasQuebradas = 0;
+for (const [arq, re, desc] of SENTINELAS) {
+  let txt = '';
+  try { txt = readFileSync(join(HS, arq), 'utf8'); }
+  catch (e) { console.log(`  ⚠ sentinela: não li ${arq} — ${e.message}`); sentinelasQuebradas++; continue; }
+  if (!re.test(txt)) { console.log(`  ✗ sentinela QUEBROU em ${arq}: ${desc}\n      a regra em Lua mudou — atualize a transcrição neste guarda`); sentinelasQuebradas++; }
+}
+
 /* ---- comparação ---- */
 let falhas = 0;
 const cmp = (nome, a, b) => {
@@ -159,7 +182,13 @@ cmp('skincare · passo do dia (freq>=7)', js.diario, lua.diario);
 cmp('criatura · nível por XP', js.nivel, lua.nivel);
 cmp('criatura · forma da arte', js.forma, lua.forma);
 cmp('criatura · humor (radiante/fome/escondido)', js.humor, lua.humor);
+cmp('criatura · emoji por humor', ['radiante','tranquilo','neutro','fome','escondido'].map(k => R.HUMOR_EMOJI[k]),
+    ['✨','🌙','🌙','🍽️','🙈']);   // espelho do MOOD_EMOJI de companheiro_sync.lua (sentinela cobre a fonte)
 cmp('financeiro · resumo (sobra/livres)', js.fin, lua.fin);
 
-if (falhas) { console.log(`\n✗ ${falhas} regra(s) DIVERGINDO entre JS e Lua`); process.exit(1); }
-console.log('\n✓ JS e Lua alinhados');
+if (falhas || sentinelasQuebradas) {
+  if (falhas) console.log(`\n✗ ${falhas} regra(s) DIVERGINDO entre JS e Lua`);
+  if (sentinelasQuebradas) console.log(`✗ ${sentinelasQuebradas} sentinela(s) quebrada(s) — o Lua real mudou`);
+  process.exit(1);
+}
+console.log(`\n✓ JS e Lua alinhados · ${SENTINELAS.length} sentinelas nos módulos reais OK`);
