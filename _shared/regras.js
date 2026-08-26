@@ -97,11 +97,63 @@
     };
   }
 
+
+  /* ---------- criatura: níveis, forma e humor -------------------------------
+     Estava escrito DUAS vezes no Mac: em JS (companheiro.html, pro widget) e em
+     Lua (companheiro_sync.lua, pro snapshot que o celular consome). As duas
+     divergiram na prática — o widget lia só 2 fontes de treino e o sync lia 4,
+     então Mac e celular mostravam humores diferentes da MESMA criatura e os
+     +15 XP de treino (que dependem de "radiante") evaporavam.
+     Aqui fica a parte PURA: tabelas e decisão. O que é impuro (ler arquivos de
+     check-in, saber que dia é hoje, contar dias ativos) continua fora, em cada
+     lado. A gêmea em Lua não pode importar isto — é o guarda de divergência
+     (_scripts/guarda-regras.mjs) que garante que continuam iguais. */
+  var NIVEIS = [['Fuligem',0],['Fuligem desperta',500],['Espectro',1000],['Espectro pleno',2000],
+                ['Diabrete',3000],['Diabrete travesso',4000],['Demônio Alado',5000],
+                ['Demônio ascendente',7000],['Vampiro',10000],['Senhor das Sombras',20000]];
+  var FORMA_ARTE = [1,1,2,2,3,3,4,4,5,6];          // qual arte cada nível usa
+  var HUMOR_EMOJI = { radiante:'✨', tranquilo:'🌙', neutro:'🌙', fome:'🍽️', escondido:'🙈' };
+  var HUMOR3 = { radiante:'bem', tranquilo:'bem', neutro:'neutro', fome:'carente', escondido:'carente' };
+
+  function nivelDe(xp) {                            // 0..9
+    xp = Number(xp) || 0;
+    var i = 0;
+    for (var j = 0; j < NIVEIS.length; j++) if (xp >= NIVEIS[j][1]) i = j;
+    return i;
+  }
+  function infoNivel(xp) {
+    xp = Number(xp) || 0;
+    var i = nivelDe(xp), c = NIVEIS[i], n = NIVEIS[i + 1];
+    var ultimo = !n;
+    var prox = ultimo ? c[1] : n[1];
+    return { idx: i, nome: c[0], min: c[1], next: prox, last: ultimo,
+             faltam: ultimo ? 0 : Math.max(0, prox - xp),
+             span: ultimo ? 1 : Math.max(1, prox - c[1]) };
+  }
+  function formaDe(xp) { return FORMA_ARTE[nivelDe(xp)] || 1; }
+
+  /* Decisão do humor — a MESMA nos dois lados.
+     diasAtivos = dias desde o último treino, pulando fim de semana quando o
+     modo descanso automático está ligado. Num dia de descanso a criatura fica
+     calma ("nada a cobrar"), nunca com fome por causa do fim de semana. */
+  function humorKey(diasAtivos, treinouHoje, diaDeDescanso, temUltimoTreino) {
+    if (!temUltimoTreino) return 'neutro';
+    var ds = Number(diasAtivos) || 0;
+    if (ds <= 0) return (!treinouHoje && diaDeDescanso) ? 'tranquilo' : 'radiante';
+    if (ds === 1) return 'tranquilo';
+    if (ds === 2) return 'fome';
+    return 'escondido';
+  }
+  function humor3(key) { return HUMOR3[key] || 'neutro'; }
+
   raiz.Regras = {
     versao: '2026-08-24',
     ymdDe: ymdDe, hoje: hoje, diasEntre: diasEntre,
     proximoStreak: proximoStreak,
     freqDoPasso: freqDoPasso, ehDiario: ehDiario, passosDoDia: passosDoDia,
-    resumoFinanceiro: resumoFinanceiro
+    resumoFinanceiro: resumoFinanceiro,
+    NIVEIS: NIVEIS, FORMA_ARTE: FORMA_ARTE, HUMOR_EMOJI: HUMOR_EMOJI,
+    nivelDe: nivelDe, infoNivel: infoNivel, formaDe: formaDe,
+    humorKey: humorKey, humor3: humor3
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

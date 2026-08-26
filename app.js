@@ -258,7 +258,7 @@ function comerBody(cm){
   // atalhos (shakes)
   if (combos.length){
     h += `<div class="cm-lbl">atalhos</div><div class="cm-chips">`;
-    h += combos.map(c => `<button class="cm-chip combo" data-ev="comer.add" data-id="${escapeHtml(c.id)}" data-nome="${escapeHtml(c.nome)}" data-prot="${c.prot}"><b>${escapeHtml(c.nome)}</b><small>${escapeHtml(c.desc||'')}</small><i>+${c.prot}g</i></button>`).join('');
+    h += combos.map(c => `<button class="cm-chip combo" data-ev="comer.portion" data-id="${escapeHtml(c.id)}" data-nome="${escapeHtml(c.nome)}" data-prot="${c.prot}" data-medida="${escapeHtml(c.desc||'')}"><b>${escapeHtml(c.nome)}</b><small>${escapeHtml(c.desc||'')}</small><i>+${c.prot}g</i></button>`).join('');
     h += `</div>`;
   }
   // opções da refeição escolhida
@@ -266,11 +266,13 @@ function comerBody(cm){
   if (meal){
     h += `<div class="cm-lbl">monte seu ${escapeHtml(meal.nome.toLowerCase())}</div><div class="cm-chips">`;
     h += (meal.itens||[]).map(id=>byId[id]).filter(Boolean).map(b =>
-      `<button class="cm-chip" data-ev="comer.portion" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}" data-medida="${escapeHtml(b.medida||'')}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('');
+      `<button class="cm-chip" data-ev="comer.portion" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}" data-medida="${escapeHtml(b.medida||'')}" data-info="${escapeHtml(b.info||'')}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('');
     h += `</div>`;
   }
   h += `<button class="cm-more" data-ev="comer.all">＋ outro item / buscar…</button>`;
   // log de hoje
+  // PARIDADE-COMER-2026-08-24 · faixa do coach de recomposição (só existia no Mac)
+  if (cm.coach && cm.coach.txt) h += `<div class="cm-coach">${cm.coach.status && cm.coach.status !== 'coletando' ? '<b>coach:</b> ' : ''}${escapeHtml(cm.coach.txt)}</div>`;
   const lg = cm.log || [];
   if (lg.length){
     h += `<div class="cm-lbl">hoje</div><div class="cm-log">`;
@@ -761,7 +763,7 @@ function openComerPortion(id, nome, baseProt, medida){
   $('cmPortionTitle').textContent = nome;
   $('cmPortionSub').textContent = (medida||'') + '  ·  1× = ' + baseProt + 'g';
   const cm = _lastSnap && _lastSnap.comer;
-  const item = cm && (cm.banco||[]).find(b => b.id===id);
+  const item = cm && ((cm.banco||[]).find(b => b.id===id) || (cm.combos||[]).find(b => b.id===id));  // PARIDADE-COMER-2026-08-24
   const opts = item && item.opts;
   if (opts && opts.length){
     // opções próprias do item (ex.: leite em 150/200/250/300ml)
@@ -792,7 +794,7 @@ function renderComerModalList(){
   const q = cmNorm(_comerModalQ);
   const list = (cm.banco||[]).filter(b => !q || cmNorm(b.nome).indexOf(q)>=0 || cmNorm(b.medida).indexOf(q)>=0);
   $('comerModalList').innerHTML = list.length
-    ? list.map(b => `<button class="cm-chip" data-ev="comer.portion" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}" data-medida="${escapeHtml(b.medida||'')}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('')
+    ? list.map(b => `<button class="cm-chip" data-ev="comer.portion" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}" data-medida="${escapeHtml(b.medida||'')}" data-info="${escapeHtml(b.info||'')}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('')
     : '<div class="todo-empty">nada encontrado</div>';
 }
 let _comerModalQ = '';

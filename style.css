@@ -461,3 +461,7 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 
 /* DAYLOG-MERGE-2026-08-19 */
 .day-fullwarn{margin:8px 0 0;font-size:11.5px;line-height:1.4;color:var(--muted,#8c8c94);background:rgba(215,171,90,.10);border-left:2px solid #d7ab5a;border-radius:4px;padding:7px 9px}
+
+/* PARIDADE-COMER-2026-08-24 · faixa do coach */
+.cm-coach{margin:8px 0 2px;padding:7px 10px;border-radius:9px;background:rgba(147,177,132,.10);border-left:2px solid #93b184;font-size:11.5px;line-height:1.45;color:var(--muted,#8c8c94)}
+.cm-coach b{color:#a9c79b;font-weight:600}
