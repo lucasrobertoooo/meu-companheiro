@@ -1,6 +1,9 @@
 // Companheiro mobile — espelho READ-ONLY do snapshot.json (schema v1).
 // Fonte: repo privado via GitHub Contents API (PAT no aparelho) OU ./snapshot.json (dev local).
 import { CREATURE_ART } from './creature-art.js';
+// CORE-2026-08-24 · núcleo compartilhado de regras (o MESMO arquivo que o widget do Mac injeta).
+// Import por efeito colateral: o arquivo não usa export (precisa rodar também como <script> inline).
+import './_shared/regras.js';
 import { SKIN_LIB } from './skincare-catalog.js';
 
 const $ = id => document.getElementById(id);
@@ -207,7 +210,7 @@ function skinRoutine(rt, slot, label){
   const rows = steps.length ? steps.map(st => {
     // SKIN-FREQ-2026-08-18 · passo de frequência semanal (retinoide) é marcado à parte e NÃO conta
     // como pendência do dia — o Mac só conta os diários (freq>=7).
-    const fq = (st.freq == null) ? 7 : st.freq;
+    const fq = (globalThis.Regras && Regras.freqDoPasso) ? Regras.freqDoPasso(st) : ((st.freq == null) ? 7 : st.freq);  // CORE-2026-08-24
     const freqTag = fq >= 7 ? '' : `<span class="skin-stepfreq">${fq === 1 ? '1×/sem' : fq + '×/sem'}</span>`;
     const sub = [(SKIN_LIB[st.type] || {}).name || '', st.product || ''].filter(Boolean).join(' · ');
     return `<div class="skin-step ${st.done ? 'done' : ''}">
@@ -298,7 +301,9 @@ function optimisticSkinStep(rt, title){
   const slot = _lastSnap && _lastSnap.skincare && _lastSnap.skincare[rt]; if (!slot || !Array.isArray(slot.steps)) return;
   const st = slot.steps.find(x => x.title === title); if (!st) return;
   st.done = !st.done;
-  slot.done = slot.steps.filter(x => x.done && ((x.freq == null ? 7 : x.freq) >= 7)).length;  // SKIN-FREQ-2026-08-18 · só diários, como o Mac
+  // CORE-2026-08-24 · o critério de "passo do dia" mora no núcleo (mesmo do Mac)
+  const _diario = x => (globalThis.Regras && Regras.ehDiario) ? Regras.ehDiario(x) : ((x.freq == null ? 7 : x.freq) >= 7);
+  slot.done = slot.steps.filter(x => x.done && _diario(x)).length;
   slot.complete = slot.total > 0 && slot.done >= slot.total;
   render(_lastSnap);
 }
@@ -413,11 +418,14 @@ function parseValBR(s){
 }
 // resumo de um conjunto de linhas — MESMA lógica do Mac (summarize). Retorna {tenho,receber,previsto,investir,sobra,livres}
 function summaryOf(rows){
+  // CORE-2026-08-24 · fórmula única no núcleo (estava escrita em 3 lugares: financeiro.lua,
+  // financeiro.html e aqui). Fallback local mantido — se o núcleo faltar, nada quebra.
+  if (globalThis.Regras && Regras.resumoFinanceiro) return Regras.resumoFinanceiro(rows);
   let tenho = 0, livres = null;
   const pend = { Receber:0, Fixo:0, 'Variável':0, 'Cartão':0, Investir:0 };
   for (const r of (rows||[])){
     if (r.cat === 'Tenho') tenho += r.valor || 0;
-    else if (r.status === 'Pago'){ /* realizado — fora do pendente */ }
+    else if (r.status === 'Pago'){ /* realizado */ }
     else if (r.status !== 'Cancelado' && (r.cat in pend)) pend[r.cat] += r.valor || 0;
     if (r.cat === 'Variável' && String(r.label||'').toLowerCase().includes('livre')) livres = (livres||0) + (r.valor||0);
   }
