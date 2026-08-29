@@ -54,6 +54,12 @@
       <div class="onboard-emoji"><svg class="ic-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 13.5a4 4 0 0 0 6 .4l2-2a4 4 0 0 0-5.7-5.7l-1.1 1.1"/><path d="M13.5 10.5a4 4 0 0 0-6-.4l-2 2a4 4 0 0 0 5.7 5.7l1.1-1.1"/></svg></div>
       <p>Toque na <b>engrenagem</b> lá em cima e cole o seu token<br>pra conectar ao seu Companheiro.</p>
     </div>
+
+    <!-- Forçar atualização: o SW serve uma cópia offline, então o PWA instalado pode ficar
+         preso numa versão antiga. Precisa ser <a target="_blank">: em standalone o iOS
+         bloqueia location.href pra sair do app. O carimbo evita o cache do navegador. -->
+    <a class="openweb" href="https://lucasrobertoooo.github.io/meu-companheiro/" data-url="https://lucasrobertoooo.github.io/meu-companheiro/" target="_blank" rel="noopener"
+       onclick="try{this.href=this.dataset.url+'?r='+Date.now()}catch(e){};return true">Abrir no navegador<small>pra forçar atualização: depois feche o app e reabra pelo ícone</small></a>
   </main>
 
   <!-- Modal de configuração do sync (PAT + repo) -->
