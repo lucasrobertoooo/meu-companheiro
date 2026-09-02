@@ -140,6 +140,31 @@
       </div>
     </div>
   </div>
+  <div class="modal-backdrop" id="musModal" hidden>
+    <div class="modal modal-tall">
+      <h3>🎵 Músicas <span class="lista-n" id="musN"></span></h3>
+      <div class="start-fmt" id="musTabs">
+        <button data-mt="fila" class="on">quero ouvir</button><button data-mt="ouvido">já ouvi</button>
+      </div>
+      <div class="lista-corpo" id="musLista"></div>
+      <div id="musAddBox">
+        <div class="mus-addrow">
+          <select id="musTipo"><option value="banda">🎤</option><option value="album">💿</option><option value="musica">🎵</option></select>
+          <input type="text" id="musArtista" placeholder="artista (opcional)">
+          <input type="text" id="musTitulo" placeholder="nome">
+        </div>
+      </div>
+      <div id="musBulkBox" hidden>
+        <label>Cola a pesquisa (um por linha, "Artista - Título" ou só o nome)
+          <textarea id="musBulkTxt" rows="5"></textarea></label>
+      </div>
+      <div class="modal-actions">
+        <button id="musBulkTog" class="btn ghost sm">colar lista</button>
+        <button id="musFechar" class="btn ghost">fechar</button>
+        <button id="musAdd" class="btn">+ adicionar</button>
+      </div>
+    </div>
+  </div>
   <div class="modal-backdrop" id="notasModal" hidden>
     <div class="modal modal-tall">
       <h3>Notas <span class="lista-n" id="notasN"></span></h3>

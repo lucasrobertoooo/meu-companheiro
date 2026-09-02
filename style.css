@@ -549,3 +549,15 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 input[type="range"]{width:100%;margin-top:4px}
 /* AUDIT-2026-09-02 · a linha da nota é um <button>: reset do UA + layout numa classe (era inline) */
 .nota-item-btn{all:unset;display:flex;gap:9px;width:100%;box-sizing:border-box;padding:9px 4px;border-bottom:1px dashed var(--line);cursor:pointer}
+/* MUSICAS-2026-09-02 */
+.mus-addrow{display:flex;gap:6px;margin-top:8px}
+.mus-addrow select{flex:none;padding:8px;border-radius:9px;border:1px solid var(--line);background:var(--card2,rgba(255,255,255,.04));color:var(--ink);-webkit-appearance:none;appearance:none}
+.mus-addrow input{flex:1;min-width:0}
+.mus-row{display:flex;align-items:center;gap:9px;padding:8px 2px;border-bottom:1px dashed var(--line)}
+.mus-row:last-child{border-bottom:none}
+.mus-ic{flex:none;width:22px;text-align:center}
+.mus-nm{flex:1;min-width:0}
+.mus-nm b{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mus-nm span{font-size:12px;color:var(--muted)}
+.mus-tg{flex:none;width:30px;height:30px;border-radius:9px;border:1.5px solid var(--line);background:transparent;color:var(--ink);font-size:14px}
+.mus-rm{flex:none;border:none;background:transparent;color:var(--muted);opacity:.6;font-size:13px;padding:4px}

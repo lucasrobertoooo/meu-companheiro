@@ -924,7 +924,7 @@ function renderCards(snap){
   if (snap.financeiro) parts.push(card('Financeiro', icon('financeiro'), fmtMes(snap.financeiro.mes), finHomeBody(snap.financeiro)));
 
   // MENTE-2026-09-02 · notas / terapia / vícios — ferramentas de apoio, sem estado de "concluído"
-  if (snap.notas || snap.terapia || snap.vicios){
+  if (snap.notas || snap.terapia || snap.vicios || snap.musicas){
     const nN = Array.isArray(snap.notas) ? snap.notas.length : 0;
     const tR = (snap.terapia && snap.terapia.registros) || 0;
     const vH = (snap.vicios && snap.vicios.haltsHoje) || 0;
@@ -932,6 +932,7 @@ function renderCards(snap){
       <button data-ev="mente.notas">🗒 Notas<small>${nN} nota${nN === 1 ? '' : 's'}</small></button>
       <button data-ev="mente.terapia">🧠 Terapia<small>${tR} registro${tR === 1 ? '' : 's'}</small></button>
       <button data-ev="mente.vicios">🌊 Vícios<small>${vH ? vH + ' check hoje' : 'check HALT'}</small></button>
+      <button data-ev="mente.musicas">🎵 Músicas<small>${(snap.musicas && Array.isArray(snap.musicas.itens)) ? snap.musicas.itens.filter(m => m && !m.ouvido).length + ' na fila' : 'sua fila'}</small></button>
     </div>`);
   }
 
@@ -1355,6 +1356,49 @@ function saveVicios(){
   postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 
+/* ===== MUSICAS-2026-09-02 · fila de bandas/álbuns/músicas (espelho do modal do Mac) ===== */
+let _musTab = 'fila';
+const MUS_ICON = { banda:'🎤', album:'💿', musica:'🎵' };
+function musItens(){ return (_lastSnap && _lastSnap.musicas && Array.isArray(_lastSnap.musicas.itens)) ? _lastSnap.musicas.itens.filter(Boolean) : []; }
+function openMusModal(){
+  _musTab = 'fila'; renderMusModal();
+  $('musTitulo').value = ''; $('musArtista').value = ''; $('musBulkTxt').value = '';
+  $('musBulkBox').hidden = true; $('musAddBox').hidden = false; $('musBulkTog').textContent = 'colar lista';
+  $('musModal').hidden = false;
+}
+function renderMusModal(){
+  document.querySelectorAll('#musTabs button').forEach(b => b.classList.toggle('on', b.dataset.mt === _musTab));
+  const todos = musItens();
+  const lista = todos.filter(m => (_musTab === 'fila') ? !m.ouvido : m.ouvido);
+  $('musN').textContent = `· ${todos.filter(m => !m.ouvido).length} na fila`;
+  $('musLista').innerHTML = lista.map(m => `
+    <div class="mus-row">
+      <span class="mus-ic">${MUS_ICON[m.tipo] || '🎵'}</span>
+      <span class="mus-nm"><b>${escapeHtml(m.titulo || '')}</b>${m.artista ? `<span>${escapeHtml(m.artista)}</span>` : ''}</span>
+      <button class="mus-tg" data-mid="${escapeHtml(m.id)}" data-ouv="${m.ouvido ? 1 : 0}">${m.ouvido ? '↩' : '✓'}</button>
+      <button class="mus-rm" data-mrm="${escapeHtml(m.id)}">✕</button>
+    </div>`).join('') || `<div class="leit-hint">${_musTab === 'fila' ? 'fila vazia — solta a pesquisa aqui' : 'nada ouvido ainda'}</div>`;
+}
+function musAddPhone(){
+  if (!$('musBulkBox').hidden){
+    const txt = $('musBulkTxt').value.trim();
+    if (!txt){ flashError('cola a lista primeiro'); return; }
+    postEvent({ type:'musica.bulk', texto:txt, tipo:$('musTipo').value }).then(schedulePrioRefresh)
+      .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+    $('musModal').hidden = true; flashError('lista enviada — sincroniza em segundos');
+    return;
+  }
+  const titulo = $('musTitulo').value.trim();
+  if (!titulo){ flashError('nome?'); return; }
+  postEvent({ type:'musica.add', tipo:$('musTipo').value, titulo, artista:$('musArtista').value.trim() })
+    .then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+  /* otimista local: aparece na hora */
+  if (_lastSnap){ _lastSnap.musicas = _lastSnap.musicas || { itens: [] };
+    _lastSnap.musicas.itens.push({ id:'tmp' + Date.now(), tipo:$('musTipo').value, titulo, artista:$('musArtista').value.trim(), ouvido:false });
+    renderMusModal(); render(_lastSnap); }
+  $('musTitulo').value = ''; $('musArtista').value = ''; $('musTitulo').focus();
+}
+
 function openListaModal(){
   const lst = (_lastSnap && _lastSnap.leituraLista) || null;
   if (!lst){ flashError('lista ainda não sincronizada'); return; }
@@ -1616,6 +1660,7 @@ const onCardClick = async (e) => {
   if (ev === 'mente.notas'){ openNotasModal(); return; }
   if (ev === 'mente.terapia'){ openTerapiaModal(); return; }
   if (ev === 'mente.vicios'){ openViciosModal(); return; }
+  if (ev === 'mente.musicas'){ openMusModal(); return; }
   if (ev === 'leit.lista'){ openListaModal(); return; }
   if (ev === 'leit.finish'){ openFinishModal(btn.dataset.book, btn.dataset.title || 'este livro'); return; }
   if (ev === 'leit.log'){ openLeitModal(btn.dataset.book, btn.dataset.title || '', Number(btn.dataset.cur) || 0,
@@ -1830,6 +1875,36 @@ $('vsDepois').addEventListener('input', () => { $('vsDepoisV').textContent = $('
 $('vicSave').addEventListener('click', saveVicios);
 $('vicCancel').addEventListener('click', () => { $('viciosModal').hidden = true; });
 $('viciosModal').addEventListener('click', e => { if (e.target === $('viciosModal')) $('viciosModal').hidden = true; });
+/* MUSICAS-2026-09-02 */
+$('musFechar').addEventListener('click', () => { $('musModal').hidden = true; });
+$('musModal').addEventListener('click', e => { if (e.target === $('musModal')) $('musModal').hidden = true; });
+$('musTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _musTab = b.dataset.mt; renderMusModal(); } });
+$('musAdd').addEventListener('click', musAddPhone);
+$('musTitulo').addEventListener('keydown', e => { if (e.key === 'Enter') musAddPhone(); });
+$('musBulkTog').addEventListener('click', () => {
+  const b = $('musBulkBox');
+  b.hidden = !b.hidden; $('musAddBox').hidden = !b.hidden;
+  $('musBulkTog').textContent = b.hidden ? 'colar lista' : 'um por vez';
+  if (!b.hidden) setTimeout(() => { try { $('musBulkTxt').focus(); } catch(e){} }, 60);
+});
+$('musLista').addEventListener('click', e => {
+  const tg = e.target.closest('[data-mid]');
+  if (tg){
+    const id = tg.dataset.mid, novo = tg.dataset.ouv !== '1';
+    postEvent({ type:'musica.toggle', id, ouvido:novo }).then(schedulePrioRefresh)
+      .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+    const it = musItens().find(m => m.id === id); if (it){ it.ouvido = novo; renderMusModal(); render(_lastSnap); }
+    return;
+  }
+  const rm = e.target.closest('[data-mrm]');
+  if (rm && confirm('Tirar da lista?')){
+    const id = rm.dataset.mrm;
+    postEvent({ type:'musica.remove', id }).then(schedulePrioRefresh)
+      .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+    if (_lastSnap && _lastSnap.musicas) _lastSnap.musicas.itens = musItens().filter(m => m.id !== id);
+    renderMusModal(); render(_lastSnap);
+  }
+});
 /* PARIDADE-LEITURA-2026-08-30 · lista / começar / concluir */
 $('listaFechar').addEventListener('click', closeListaModal);
 $('listaAdd').addEventListener('click', openListaAddModal);
