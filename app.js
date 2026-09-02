@@ -81,8 +81,13 @@ async function fetchSnapshot(){
     if (r.status === 401 || r.status === 403) throw new Error('Token inválido ou sem permissão.');
     if (r.status === 404) throw new Error('Repo/arquivo não encontrado.');
     if (!r.ok) throw new Error('GitHub API '+r.status);
-    _etag = r.headers.get('ETag') || null;
-    return JSON.parse(await r.text());
+    /* AUDIT-2026-09-02 · o etag era gravado ANTES do parse: corpo truncado em rede móvel deixava o etag
+       apontando pra um snapshot que nunca renderizou → todos os polls seguintes viravam 304 e o app
+       ficava preso no dado velho. Só confirma o etag quando o JSON chegou inteiro. */
+    const _novoEtag = r.headers.get('ETag') || null;
+    const _corpo = JSON.parse(await r.text());
+    _etag = _novoEtag;
+    return _corpo;
   }
   // dev/local
   const r = await fetch('./snapshot.json', { cache:'no-store' });
@@ -126,7 +131,10 @@ function todayStr(){
   // discordarem do "hoje" (corte 4h + cache do app causavam eventos no dia errado). Fallback: corte 4h local.
   // FRESCOR-2026-08-24 · MAS se o snapshot está defasado (Mac desligado há +12h), confiar no snap.date
   // DATA O EVENTO NO DIA ERRADO — aí é melhor cair no corte local.
-  if (_lastSnap && _lastSnap.date && !snapshotDefasado(_lastSnap)) return _lastSnap.date;
+  // AUDIT-2026-09-02 · sem `pub` (Mac antigo) a idade é indetectável e `snapshotDefasado` devolve false
+  // — um cache de dias confiaria no snap.date e dataria eventos no dia errado. Sem pub → corte local
+  // (que usa o MESMO corteH vindo do snapshot, então o resultado coincide quando o cache é fresco).
+  if (_lastSnap && _lastSnap.date && idadeBatimentoH(_lastSnap) != null && !snapshotDefasado(_lastSnap)) return _lastSnap.date;
   // REVISAO-2026-08-26 · o corte é CONFIGURÁVEL no Mac (0-12h) e aqui estava chumbado em 4h. Com o
   // FRESCOR, este fallback virou caminho quente — datar errado entre o corte antigo e o novo era real.
   // Usa o corte que veio no snapshot (mesmo que velho, é o que o Mac usa) e o cálculo do núcleo.
@@ -151,6 +159,9 @@ function filaLer(){ try{ return JSON.parse(localStorage.getItem(FILA_KEY) || '[]
 function filaGravar(f){
   // REVISAO-2026-08-26 · devolve se conseguiu gravar. Antes engolia a falha com catch vazio e o
   // postEvent retornava true assim mesmo — a UI dava por feito algo que não foi guardado em lugar nenhum.
+  // AUDIT-2026-09-02 · o corte em 200 protegia a quota mas era MUDO — os eventos mais velhos sumiam
+  // sem sinal nenhum. Cenário raro (offline por dias marcando muito), mas perda de dado avisa sempre.
+  if (f.length > 200){ try{ flashError((f.length - 200) + ' evento(s) antigos descartados — fila cheia'); }catch(e){} }
   try{ localStorage.setItem(FILA_KEY, JSON.stringify(f.slice(-200))); return true; }catch{ return false; }
 }
 function filaTamanho(){ return filaLer().length; }
@@ -174,8 +185,10 @@ async function enviarEvento(evt){
   });
   if (r.status === 401 || r.status === 403) { const e = new Error('token sem permissão de escrita'); e.semRetry = true; throw e; }
   if (r.status === 422) return true;   // já existe no repo = já entregue
-  // REVISAO-2026-08-26 · 4xx que não é auth (404 repo/branch errado, 400 payload) NÃO se resolve
-  // reenviando — ficaria na fila pra sempre, com a faixa mentindo "aguardando conexão".
+  // AUDIT-2026-09-02 · 408 (timeout), 409 (branch avançou: o Mac também escreve em main — corriqueiro)
+  // e 429 (rate limit) são TRANSITÓRIOS: reenviar resolve. Marcar como permanente descartava a marcação
+  // em silêncio. Só o resto do 4xx (404 repo errado, 400 payload) é de fato insolúvel por reenvio.
+  if (r.status === 408 || r.status === 409 || r.status === 429) throw new Error('GitHub ' + r.status + ' (transitório)');
   if (r.status >= 400 && r.status < 500) { const e = new Error('GitHub ' + r.status); e.permanente = true; throw e; }
   if (!r.ok) throw new Error('GitHub ' + r.status);
   return true;
@@ -183,17 +196,27 @@ async function enviarEvento(evt){
 
 async function postEvent(partial){
   const evt = { id: uuid(), ts: Math.floor(Date.now()/1000), date: todayStr(), source: 'mobile', v: 1, ...partial };
+  if (!getCfg() || !getCfg().pat) throw new Error('conecte o token primeiro (engrenagem)');
+  /* AUDIT-2026-09-02 · PERSISTE ANTES de enviar. O iOS mata o JS sem aviso (trocar de app, travar a
+     tela) — com o PUT em voo e nada na fila, a marcação que a UI já mostrou evaporava. Agora o evento
+     nasce na fila e sai dela no sucesso; se o app morrer no meio, o dreno reenvia (o arquivo do inbox é
+     create-only: reenvio do mesmo id leva 422 = já entregue, sem duplicar). */
+  if (!filaEnfileirar(evt)) { throw new Error('não deu pra guardar o evento — tente de novo'); }
   try {
     const r = await enviarEvento(evt);
+    filaGravar(filaLer().filter(e => e.id !== evt.id));   // entregue → sai da fila
+    renderFilaAviso();
     filaDrenar();            // aproveita que a rede está boa pra escoar o que ficou pra trás
     return r;
   } catch (err) {
-    if (err && err.semRetry) throw err;                 // token errado: reenviar não resolve
-    if (!getCfg() || !getCfg().pat) throw err;          // sem token: idem
-    // Enfileirou: NÃO lança. Se lançasse, cada handler desfaria a marcação otimista e o usuário veria o
+    if (err && (err.semRetry || err.permanente)) {        // reenviar não resolve → não deixa apodrecer na fila
+      filaGravar(filaLer().filter(e => e.id !== evt.id));
+      renderFilaAviso();
+      throw err;
+    }
+    // Fica na fila: NÃO lança. Se lançasse, cada handler desfaria a marcação otimista e o usuário veria o
     // item desmarcar sozinho — mesmo com o evento salvo. A UI segue marcada e a faixa "N aguardando
     // conexão" conta a verdade; quando a rede voltar, o dreno entrega e o snapshot confirma.
-    if (!filaEnfileirar(evt)) { const e = new Error('sem conexão e não deu pra guardar — tente de novo'); throw e; }
     try{ flashError('sem conexão — guardado, envia sozinho'); }catch(e2){}
     return true;
   }
@@ -221,6 +244,11 @@ async function filaDrenar(){
         if (err && err.permanente) {                          // 4xx não-auth: reenviar não resolve
           filaGravar(filaLer().filter(e => e.id !== evt.id));
           console.warn('evento descartado (erro permanente):', evt.type, err.message);
+          /* AUDIT-2026-09-02 · descartar em silêncio deixava o card em "…" pra sempre (_pending nunca
+             confirmado) e a marcação sumia sem aviso. Avisa e derruba o otimismo pra UI contar a verdade. */
+          try{ flashError('não deu pra enviar "' + evt.type + '" — descartado (' + err.message + ')'); }catch(e2){}
+          _pending = {};
+          if (_lastSnap) try{ render(_lastSnap); }catch(e2){}
           continue;
         }
         break;                                                // auth ou rede: para e MANTÉM o resto
@@ -312,7 +340,7 @@ function skinBtn(routine, slot){
 
 // rotina de skincare expansível: cabeçalho (N/M) + passos (marcar item a item) + "marcar tudo". F-SKINSTEP.
 function skinRoutine(rt, slot, label){
-  const steps = slot.steps || [], open = _skinOpen[rt];
+  const steps = (slot.steps || []).filter(Boolean), open = _skinOpen[rt];
   const head = `<button class="skin-rthead ${slot.complete ? 'full' : ''}" data-ev="skin.open" data-rt="${rt}">
     <span class="skin-rtname">${label}</span><span class="skin-rtcount">${slot.done || 0}/${slot.total || 0}</span>
     <span class="skin-rtchev">${icon(open ? 'up' : 'down')}</span></button>`;
@@ -357,13 +385,13 @@ function comerBody(cm){
   const barCol = done ? 'var(--sage,#93b184)' : '#5b9bd5';
   let h = `<div class="cm-track"><div class="cm-fill" style="width:${pct}%;background:${barCol}"></div></div>`;
   h += `<div class="cm-sugg">${done ? '✓ meta batida hoje' : escapeHtml(cm.sugestao || ('faltam '+(m-n)+'g'))}</div>`;
-  const meals = cm.meals || [], combos = cm.combos || [];
-  const byId = {}; (cm.banco||[]).forEach(b => byId[b.id]=b);
+  const meals = (cm.meals || []).filter(Boolean), combos = (cm.combos || []).filter(Boolean);
+  const byId = {}; (cm.banco||[]).filter(Boolean).forEach(b => byId[b.id]=b);   // AUDIT-2026-09-02 · null não derruba o render
   // MONTÁVEL: abas de refeição — escolhe a refeição, toca o que comeu
   if (meals.length){
     if (!_comerMeal || !meals.find(x=>x.id===_comerMeal)) _comerMeal = meals.find(x=>x.id===mealByHour())?mealByHour():meals[0].id;
     h += `<div class="cm-mtabs">` + meals.map(mm =>
-      `<button class="cm-mtab ${mm.id===_comerMeal?'on':''}" data-ev="comer.meal" data-meal="${mm.id}">${escapeHtml(mm.nome)}</button>`).join('') + `</div>`;
+      `<button class="cm-mtab ${mm.id===_comerMeal?'on':''}" data-ev="comer.meal" data-meal="${escapeHtml(mm.id)}">${escapeHtml(mm.nome)}</button>`).join('') + `</div>`;
   }
   // atalhos (shakes)
   if (combos.length){
@@ -374,7 +402,7 @@ function comerBody(cm){
   // opções da refeição escolhida
   const meal = meals.find(x=>x.id===_comerMeal);
   if (meal){
-    h += `<div class="cm-lbl">monte seu ${escapeHtml(meal.nome.toLowerCase())}</div><div class="cm-chips">`;
+    h += `<div class="cm-lbl">monte seu ${escapeHtml(String(meal.nome||'').toLowerCase())}</div><div class="cm-chips">`;
     h += (meal.itens||[]).map(id=>byId[id]).filter(Boolean).map(b =>
       `<button class="cm-chip" data-ev="comer.portion" data-id="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.nome)}" data-prot="${b.prot}" data-medida="${escapeHtml(b.medida||'')}" data-info="${escapeHtml(b.info||'')}"><b>${escapeHtml(b.nome)}</b><small>${escapeHtml(b.medida||'')}</small><i>+${b.prot}g</i></button>`).join('');
     h += `</div>`;
@@ -468,7 +496,7 @@ function prioDragEnd(){
     const arr = _lastSnap.prioridades.itens, from = arr.findIndex(i => i.id === id);
     if (from >= 0){ const [it] = arr.splice(from, 1); let to = arr.length; if (beforeId){ const b = arr.findIndex(i => i.id === beforeId); if (b >= 0) to = b; } arr.splice(to, 0, it); }
   }
-  postEvent({ type:'intent.move', intentId:id, beforeId }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao mover'); refresh(); });
+  postEvent({ type:'intent.move', intentId:id, beforeId }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao mover'); refreshForcado(); });
 }
 
 // corpo do card de Prioridades: tabs (filtro local) + itens (toggle/nota/arrastar) + histórico. PRIORIDADES-EDIT-F.A.
@@ -670,9 +698,9 @@ function renderExtrato(){
   if (when) when.textContent = ex.iso ? ('atualizado ' + ex.iso) : '';
   const fmtDay = d => { const p = String(d).split('-'); return p.length === 3 ? (p[2] + '/' + p[1]) : d; };
   const noR$ = v => fmtBRL(Math.abs(v)).replace('R$ ', '');
-  $('extratoBody').innerHTML = ex.accounts.map((a, i) => {
+  $('extratoBody').innerHTML = ex.accounts.filter(Boolean).map((a, i) => {
     const open = !!_extratoOpen[i];
-    const txs = a.txs || [];
+    const txs = (a.txs || []).filter(Boolean);
     const outSum = txs.reduce((s, t) => s + (t.v < 0 ? -t.v : 0), 0);
     const head = `<button class="fin-cathead" data-ev="ext.acc" data-i="${i}">
       <span class="fin-catname">${a.cat === 'Cartão' ? '💳' : '🏦'} ${escapeHtml(a.label)}</span>
@@ -819,7 +847,7 @@ function renderCards(snap){
   // Toca o livro (ou "registrar leitura") → modal pra marcar em que página parou (atualiza % e streak).
   // O ✓ do lado é o check rápido "li hoje" (toggle), como antes.
   if (snap.leitura && Array.isArray(snap.leitura.books) && snap.leitura.books.length){
-    const books = snap.leitura.books;
+    const books = snap.leitura.books.filter(Boolean);   // AUDIT-2026-09-02
     const rows = books.map(b => {
       const key = 'leitura:' + b.id, pend = pendingFor(key, !!b.done);
       const cur = b.current || 0, tot = b.total || 0, pct = Math.max(0, Math.min(100, b.pct || 0));
@@ -954,7 +982,7 @@ async function comerAddPortion(prot, label){
   closeComerPortion();
   optimisticComer(+prot, { nome, prot, t });
   try{ await postEvent({ type:'comer.add', id:p.id, nome, prot, t }); schedulePrioRefresh(); }
-  catch(err){ optimisticComer(-prot); flashError(err.message || 'falha ao enviar'); refresh(); }
+  catch(err){ optimisticComer(-prot); flashError(err.message || 'falha ao enviar'); refreshForcado(); }
 }
 function renderComerModalList(){
   const cm = _lastSnap && _lastSnap.comer; if (!cm) return;
@@ -1005,18 +1033,31 @@ async function refresh(){
     const snap = await fetchSnapshot();
     if (snap === NOT_MODIFIED){ if (_lastSnap) renderFreshness(_lastSnap); return; }   // só atualiza o "há X min"
     const key = stripTs(snap);          // dedup sem o ts (igual ao Mac) → não repinta/pisca à toa
-    localStorage.setItem(SNAP_CACHE, JSON.stringify(snap));
     if (key === _lastRendered){ renderFreshness(snap); return; }
-    _lastRendered = key;
     render(snap);
+    /* AUDIT-2026-09-02 · dedup e cache só DEPOIS do render dar certo. Antes, um snapshot que quebrasse o
+       render já estava gravado como "renderizado" E como cache: o catch repintava o MESMO snapshot
+       envenenado (quebrava de novo) e os polls seguintes pulavam pelo dedup — app congelado sem mensagem.
+       Agora um render quebrado nem vira cache e o próximo poll tenta de novo. setItem blindado: quota
+       estourada não pode virar um falso "sem conexão". */
+    _lastRendered = key;
+    try{ localStorage.setItem(SNAP_CACHE, JSON.stringify(snap)); }catch(e2){}
   }catch(e){
     // offline/erro → tenta o último snapshot em cache
-    const cached = localStorage.getItem(SNAP_CACHE);
-    if (cached){ render(JSON.parse(cached)); flashError('sem conexão — mostrando último'); }
+    let cachedSnap = null;
+    try{ const c = localStorage.getItem(SNAP_CACHE); if (c) cachedSnap = JSON.parse(c); }
+    catch(e2){ try{ localStorage.removeItem(SNAP_CACHE); }catch(e3){} }   // cache corrompido: fora, e segue o fluxo normal
+    if (cachedSnap){ try{ render(cachedSnap); }catch(e2){} flashError('sem conexão — mostrando último'); }
     else if (!getCfg()) showOnboarding();          // 1º uso no site público: pede o token
     else showError(e.message || 'falha ao carregar');
   }
 }
+
+/* AUDIT-2026-09-02 · rollback otimista de verdade. O padrão antigo dos catches era `refresh()` — mas o
+   snapshot do servidor NÃO mudou quando o envio falha, então o 304/dedup engolia o repaint e a UI ficava
+   mentindo "marcado" até o Mac publicar qualquer coisa. Zerar o etag e o dedup força buscar e REPINTAR a
+   verdade do servidor (o que também desfaz mutações otimistas feitas direto em _lastSnap). */
+function refreshForcado(){ _etag = null; _lastRendered = null; return refresh(); }
 function showOnboarding(){
   document.body.classList.remove('loading');
   document.body.classList.add('needcfg');   // CSS esconde hero/today/cards e mostra #onboard (DOM intacto)
@@ -1031,9 +1072,11 @@ function showError(msg){ $('cards').innerHTML = `<div class="state-msg err">${es
 let _flashTimer = null, _flashOrig = null;
 function flashError(msg){
   const f = $('freshness'); if (!f) return;
-  if (_flashTimer) clearTimeout(_flashTimer); else _flashOrig = f.textContent;
+  /* AUDIT-2026-09-02 · guarda/restaura innerHTML: o aviso de defasagem ("⚠ sem sincronizar") tem markup
+     e voltava como texto puro, perdendo o estilo até o próximo poll. */
+  if (_flashTimer) clearTimeout(_flashTimer); else _flashOrig = f.innerHTML;
   f.textContent = msg;
-  _flashTimer = setTimeout(() => { f.textContent = _flashOrig; _flashTimer = null; _flashOrig = null; }, 3000);
+  _flashTimer = setTimeout(() => { f.innerHTML = _flashOrig; _flashTimer = null; _flashOrig = null; }, 3000);
 }
 
 /* ---------- push nativo (iOS 16.4+ · precisa do app instalado na tela inicial) ---------- */
@@ -1121,11 +1164,11 @@ function saveEditor(){
   closeEditor();
   if (id){   // editar (OTIMISTA — muda na hora)
     optimisticPrio(pr => { const it = pr.itens.find(i => i.id === id); if (it){ it.text = text; it.note = note || undefined; } });
-    postEvent({ type:'intent.edit', intentId:id, text, note }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao salvar'); refresh(); });
+    postEvent({ type:'intent.edit', intentId:id, text, note }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao salvar'); refreshForcado(); });
   } else {   // adicionar — o celular gera o ts (id real) e manda; o item otimista já nasce com o id certo,
     const newTs = Date.now();   // (assim mexer nele antes de sincronizar não quebra — mesmo id nos 2 lados)
     optimisticPrio(pr => { pr.itens.push({ id: newTs, text, done:false, note: note || undefined, type: itype }); });
-    postEvent({ type:'intent.add', text, note, itype, newTs }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao adicionar'); refresh(); });
+    postEvent({ type:'intent.add', text, note, itype, newTs }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao adicionar'); refreshForcado(); });
   }
 }
 function deleteIntent(){
@@ -1133,7 +1176,7 @@ function deleteIntent(){
   const id = _editId;
   closeEditor();
   optimisticPrio(pr => { pr.itens = pr.itens.filter(i => i.id !== id); });
-  postEvent({ type:'intent.remove', intentId:id }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao apagar'); refresh(); });
+  postEvent({ type:'intent.remove', intentId:id }).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao apagar'); refreshForcado(); });
 }
 
 /* ---------- info de um passo do skincare (o que fazer / como aplicar) ---------- */
@@ -1214,7 +1257,7 @@ function openNotasModal(){
   const ns = (_lastSnap && Array.isArray(_lastSnap.notas)) ? _lastSnap.notas : [];
   $('notasN').textContent = `· ${ns.length}`;
   $('notasCorpo').innerHTML = ns.map(n => `
-    <button class="nota-item" data-nid="${escapeHtml(n.id)}" style="all:unset;display:flex;gap:9px;width:100%;box-sizing:border-box;padding:9px 4px;border-bottom:1px dashed var(--line)">
+    <button class="nota-item nota-item-btn" data-nid="${escapeHtml(n.id)}">
       <span class="nota-dot" style="background:${escapeHtml(n.color || '#999')}"></span>
       <span class="nota-tit"><b>${escapeHtml(n.title || '(sem título)')}</b><span>${escapeHtml(n.body || '')}</span></span>
       ${n.pinned ? '<span class="nota-pin">📌</span>' : ''}
@@ -1223,7 +1266,8 @@ function openNotasModal(){
 }
 function openNotaEdit(id){
   const ns = (_lastSnap && Array.isArray(_lastSnap.notas)) ? _lastSnap.notas : [];
-  const n = id ? ns.find(x => x.id === id) : null;
+  const n = id ? ns.find(x => x && x.id === id) : null;
+  if (id && !n){ flashError('essa nota já não existe'); return; }   // AUDIT-2026-09-02 · apagada no Mac entre renders
   _notaEdit = n ? { id: n.id, pinned: !!n.pinned } : null;
   $('notaEditTitulo').textContent = n ? 'Editar nota' : 'Nova nota';
   $('neTitulo').value = n ? (n.title || '') : '';
@@ -1240,20 +1284,20 @@ function saveNotaEdit(){
   if (!title && !body){ flashError('nota vazia'); return; }
   const evt = _notaEdit ? { type:'nota.edit', id:_notaEdit.id, title, body } : { type:'nota.add', title, body };
   closeNotaEdit(); $('notasModal').hidden = true;
-  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 function apagarNota(){
   if (!_notaEdit) return;
   if (!confirm('Apagar esta nota?')) return;
   const evt = { type:'nota.remove', id:_notaEdit.id };
   closeNotaEdit(); $('notasModal').hidden = true;
-  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 function togglePinNota(){
   if (!_notaEdit) return;
   const evt = { type:'nota.pin', id:_notaEdit.id, pinned: !_notaEdit.pinned };
   closeNotaEdit(); $('notasModal').hidden = true;
-  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 
 let _terTab = 'reg';
@@ -1281,7 +1325,7 @@ function saveTerapia(){
     evt = { type:'terapia.gratidao', items, person:$('tgPessoa').value.trim(), personWhy:'' };
   }
   $('terapiaModal').hidden = true;
-  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 
 let _vicTab = 'halt', _halt = {};
@@ -1308,7 +1352,7 @@ function saveVicios(){
             duration:(parseInt($('vsMin').value, 10) || 0) * 60, trigger:$('vsGatilho').value.trim(), note:'' };
   }
   $('viciosModal').hidden = true;
-  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 
 function openListaModal(){
@@ -1327,7 +1371,7 @@ function openListaModal(){
       <div class="lst-item">
         <div class="lst-tit"><b>${escapeHtml(b.title)}</b>${b.author ? `<span>${escapeHtml(b.author)}</span>` : ''}</div>
         <button class="lst-comecar" data-tid="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}"
-          data-author="${escapeHtml(b.author || '')}" data-fmt="${b.format || ''}" ${podeComecar ? '' : 'disabled'}>começar</button>
+          data-author="${escapeHtml(b.author || '')}" data-fmt="${escapeHtml(b.format || '')}" ${podeComecar ? '' : 'disabled'}>começar</button>
       </div>`).join('');
     return `<div class="cat-sec">
       <button class="cat-head" data-cat="${c}"><span>${CAT_LABEL[c]}</span><span class="n">${porCat[c].length} ${aberta ? '▾' : '▸'}</span></button>
@@ -1365,10 +1409,9 @@ function saveStartModal(){
   const evt = { type:'leitura.start', tId:_startCtx.tId, title:_startCtx.title, author:_startCtx.author || '',
                 format:_startFmt, total, cur: Math.min(cur, total) };
   closeStartModal(); closeListaModal();
-  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
-  flashError('começando “' + _startCtx0(evt) + '”…');
+  flashError('começando “' + (evt.title || '').slice(0, 24) + '”…');
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
-function _startCtx0(evt){ return (evt.title || '').slice(0, 24); }
 
 function openFinishModal(bookId, title){
   _finishCtx = { id: bookId, rating: 4 };
@@ -1385,14 +1428,14 @@ function saveFinishModal(){
   if (!_finishCtx) return;
   const evt = { type:'leitura.finish', bookId:_finishCtx.id, rating:_finishCtx.rating };
   closeFinishModal();
-  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 function tirarLivro(){
   if (!_finishCtx) return;
   if (!confirm('Tirar do “em leitura” sem marcar como concluído?')) return;
   const evt = { type:'leitura.tirar', bookId:_finishCtx.id };
   closeFinishModal();
-  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 
 function openListaAddModal(){
@@ -1408,7 +1451,7 @@ function saveListaAdd(){
   if (!title){ flashError('título?'); return; }
   const evt = { type:'leitura.addlista', title, author:$('laAutor').value.trim(), cat:$('laCat').value };
   closeListaAddModal();
-  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 function saveLeitModal(){
   if (!_leitBook) return;
@@ -1461,7 +1504,12 @@ function saveDayModal(){
   _pending['daylog'] = true;              // pendente até o snapshot confirmar (hub aplica)
   if (_lastSnap) render(_lastSnap);
   // `prefilled` avisa o Mac que este cliente abriu o modal já preenchido → limpar de propósito funciona.
-  postEvent({ type:'daylog.close', mood:_dayMood, wellDone, capText, learning, wouldChange, prefilled:true })
+  // AUDIT-2026-09-02 · MAS só vale com snapshot FRESCO: com cache velho o modal pode ter aberto vazio
+  // sem saber do que o Mac escreveu depois — mandar prefilled aí re-cria o bug clássico do daylog
+  // (vazio apagando texto). Sem frescor: vazio preserva, preenchido grava. Ninguém perde diário.
+  const _idadeH = idadeBatimentoH(_lastSnap);
+  const _fresco = _idadeH != null && _idadeH <= 2;
+  postEvent({ type:'daylog.close', mood:_dayMood, wellDone, capText, learning, wouldChange, prefilled:_fresco })
     .then(() => { [6, 14, 24, 34].forEach(s => setTimeout(refresh, s * 1000)); })
     .catch(err => { delete _pending['daylog']; flashError(err.message || 'falha ao enviar'); if (_lastSnap) render(_lastSnap); });
 }
@@ -1482,7 +1530,7 @@ function saveReflModal(){
   if (_lastSnap && _lastSnap.reflexao){ _lastSnap.reflexao.answer = response; _lastSnap.reflexao.answered = true; render(_lastSnap); }
   postEvent({ type:'reflexao.answer', response })
     .then(() => { [6, 14, 24, 34].forEach(s => setTimeout(refresh, s * 1000)); })
-    .catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+    .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 
 /* ---------- editor de linha do financeiro (nova / editar / apagar) ---------- */
@@ -1521,20 +1569,20 @@ function saveFinEditor(){
     optimisticFin(fin => { const r = (fin.rows||[]).find(x => String(x.id) === id);
       if (r){ r.label=label; r.valor=valor; r.cat=cat; r.status=status; r.venc=venc||undefined; r.split=split; r.nota=nota||undefined; } });
     postEvent({ type:'fin.edit', id, label, valor, cat, status, venc: (venc===null?'':venc), split, nota })
-      .then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao salvar'); refresh(); });
+      .then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao salvar'); refreshForcado(); });
   } else {   // nova — o celular gera o id (real = otimista)
     const nid = finNewId();
     optimisticFin(fin => { fin.rows.push({ id:nid, mes, label, valor, cat, status, venc: venc||undefined, split, nota: nota||undefined }); });
     if (!_finOpen[cat]){ _finOpen[cat] = true; saveFinOpen(); }
     postEvent({ type:'fin.add', id:nid, mes, label, valor, cat, status, venc: (venc===null?undefined:venc), split, nota })
-      .then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao adicionar'); refresh(); });
+      .then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao adicionar'); refreshForcado(); });
   }
 }
 function deleteFinRow(){
   if (!_finEditId) return;
   const id = _finEditId; closeFinEditor();
   optimisticFin(fin => { fin.rows = (fin.rows||[]).filter(r => String(r.id) !== id); });
-  postEvent({ type:'fin.delete', id }).then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao apagar'); refresh(); });
+  postEvent({ type:'fin.delete', id }).then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao apagar'); refreshForcado(); });
 }
 
 /* ---------- ações (delegado; usado na home #cards E na tela cheia #finFull) ---------- */
@@ -1559,7 +1607,7 @@ const onCardClick = async (e) => {
     const add = ev === 'pelvico.add';
     optimisticPelvic(add ? +1 : -1);
     try{ await postEvent({ type:'pelvico.session', done: add }); schedulePrioRefresh(); }
-    catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refreshForcado(); }
     return;
   }
   if (ev === 'intent.edit'){ openEditor(Number(btn.dataset.id), btn.dataset.text || '', btn.dataset.note || ''); return; }
@@ -1579,7 +1627,7 @@ const onCardClick = async (e) => {
     const id = Number(btn.dataset.id);
     optimisticPrio(pr => { const it = pr.itens.find(i => i.id === id); if (it) it.done = !it.done; });
     try{ await postEvent({ type:'intent.toggle', intentId:id }); schedulePrioRefresh(); }
-    catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refreshForcado(); }
     return;
   }
 
@@ -1590,7 +1638,7 @@ const onCardClick = async (e) => {
     const rt = btn.dataset.rt, title = btn.dataset.title, target = btn.dataset.done !== '1';
     optimisticSkinStep(rt, title);
     try{ await postEvent({ type:'skincare.step', routine:rt, title, done: target }); schedulePrioRefresh(); }
-    catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refreshForcado(); }
     return;
   }
 
@@ -1600,19 +1648,12 @@ const onCardClick = async (e) => {
     _pending['habito.' + id] = target;
     optimisticHabito(id);
     try{ await postEvent({ type:'habito.toggle', id, done: target }); schedulePrioRefresh(); }
-    catch(err){ delete _pending['habito.' + id]; flashError(err.message || 'falha ao enviar'); refresh(); }
+    catch(err){ delete _pending['habito.' + id]; flashError(err.message || 'falha ao enviar'); refreshForcado(); }
     return;
   }
 
   // COMER · marcar refeição/item, desfazer, ou abrir a busca de todos os itens. MOBILE-COMER-2026-07-29.
-  if (ev === 'comer.add'){
-    const id = btn.dataset.id, nome = btn.dataset.nome, prot = +btn.dataset.prot||0;
-    const t = nowHHMM();
-    optimisticComer(+prot, { nome, prot, t });
-    try{ await postEvent({ type:'comer.add', id, nome, prot, t }); schedulePrioRefresh(); }
-    catch(err){ optimisticComer(-prot); flashError(err.message || 'falha ao enviar'); refresh(); }
-    return;
-  }
+  /* AUDIT-2026-09-02 · branch comer.add removido: nenhum elemento emite esse data-ev desde o montável (comer.portion) */
   if (ev === 'comer.undo'){
     // COMER-UNDO-IDX-2026-08-18 · casa pelo índice (o `t` vira só conferência no Mac). Antes o celular
     // removia a PRIMEIRA entrada daquele minuto e o Mac removia a ÚLTIMA → apagava item errado.
@@ -1624,7 +1665,7 @@ const onCardClick = async (e) => {
     if (cm) cm.log = (cm.log||[]).filter(x => x !== entry);
     render(_lastSnap);
     try{ await postEvent({ type:'comer.undo', t, idx }); schedulePrioRefresh(); }
-    catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refreshForcado(); }
     return;
   }
   if (ev === 'comer.peso'){
@@ -1665,7 +1706,7 @@ const onCardClick = async (e) => {
     const next = FIN_STATUS[(FIN_STATUS.indexOf(cur) + 1) % FIN_STATUS.length];
     optimisticFin(fin => { const r = (fin.rows||[]).find(x => String(x.id) === String(id)); if (r) r.status = next; });
     try{ await postEvent({ type:'fin.edit', id, status: next }); schedulePrioRefresh(); }
-    catch(err){ flashError(err.message || 'falha ao enviar'); refresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refreshForcado(); }
     return;
   }
   if (ev === 'fin.rollover'){
@@ -1770,6 +1811,9 @@ $('notaNova').addEventListener('click', () => openNotaEdit(null));
 $('notasModal').addEventListener('click', e => { if (e.target === $('notasModal')) $('notasModal').hidden = true; });
 $('notasCorpo').addEventListener('click', e => { const it = e.target.closest('[data-nid]'); if (it) openNotaEdit(it.dataset.nid); });
 $('neSave').addEventListener('click', saveNotaEdit);
+$('neTitulo').addEventListener('keydown', e => { if (e.key === 'Enter') saveNotaEdit(); });
+$('laTitulo').addEventListener('keydown', e => { if (e.key === 'Enter') saveListaAdd(); });
+$('startCur').addEventListener('keydown', e => { if (e.key === 'Enter') saveStartModal(); });
 $('neCancel').addEventListener('click', closeNotaEdit);
 $('neApagar').addEventListener('click', apagarNota);
 $('nePin').addEventListener('click', togglePinNota);

@@ -547,3 +547,5 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .halt-chips button{padding:14px 8px;border-radius:12px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:14px}
 .halt-chips button.on{background:var(--card2,rgba(255,255,255,.07));color:var(--ink);border-color:var(--ink2,var(--ink))}
 input[type="range"]{width:100%;margin-top:4px}
+/* AUDIT-2026-09-02 · a linha da nota é um <button>: reset do UA + layout numa classe (era inline) */
+.nota-item-btn{all:unset;display:flex;gap:9px;width:100%;box-sizing:border-box;padding:9px 4px;border-bottom:1px dashed var(--line);cursor:pointer}

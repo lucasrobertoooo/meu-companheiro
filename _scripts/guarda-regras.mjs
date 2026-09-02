@@ -163,6 +163,9 @@ const SENTINELAS = [
   ['companheiro.html',      /passivas\[\(\(n%passivas\.length\)/,       'pílula: indexação por dia no hub'],
   ['companheiro.html',      /_pelvicIds=\['assoalho_pelvico_kegel','reverse_kegel_hipertonia','ponr_calibragem','stop_start_edging'\]/, 'pílula: exclusão das práticas de pélvico (hub)'],
   ['companheiro_sync.lua',  /assoalho_pelvico_kegel = true, reverse_kegel_hipertonia = true/, 'pílula: exclusão das práticas de pélvico (snapshot)'],
+  // AUDIT-2026-09-02 · o corte do dia é a regra dupla mais antiga (JS Regras.hoje × daycut.lua) e não
+  // tinha proteção nenhuma — e skincare já quebrou exatamente por corte divergente.
+  ['daycut.lua',            /os\.date\("%Y-%m-%d", os\.time\(\) - refresh\(\) \* 3600\)/, 'daycut: fórmula do dia lógico'],
 ];
 let sentinelasQuebradas = 0;
 for (const [arq, re, desc] of SENTINELAS) {
@@ -186,8 +189,34 @@ cmp('skincare · passo do dia (freq>=7)', js.diario, lua.diario);
 cmp('criatura · nível por XP', js.nivel, lua.nivel);
 cmp('criatura · forma da arte', js.forma, lua.forma);
 cmp('criatura · humor (radiante/fome/escondido)', js.humor, lua.humor);
-cmp('criatura · emoji por humor', ['radiante','tranquilo','neutro','fome','escondido'].map(k => R.HUMOR_EMOJI[k]),
-    ['✨','🌙','🌙','🍽️','🙈']);   // espelho do MOOD_EMOJI de companheiro_sync.lua (sentinela cobre a fonte)
+/* AUDIT-2026-09-02 · antes comparava contra um array chumbado AQUI (e a sentinela só vigiava o
+   radiante) — mudar fome/escondido no Lua passava batido. Agora extrai a tabela REAL do arquivo. */
+{
+  const syncTxt = readFileSync(join(HS, 'companheiro_sync.lua'), 'utf8');
+  const mLinha = syncTxt.match(/local MOOD_EMOJI = \{([^}]*)\}/);
+  const luaEmoji = {};
+  if (mLinha) for (const [, k, v] of mLinha[1].matchAll(/(\w+)="([^"]+)"/g)) luaEmoji[k] = v;
+  const chaves = ['radiante','tranquilo','neutro','fome','escondido'];
+  cmp('criatura · emoji por humor (5/5, tabela real do Lua)',
+      chaves.map(k => R.HUMOR_EMOJI[k]), chaves.map(k => luaEmoji[k]));
+}
+/* AUDIT-2026-09-02 · corte do dia: roda a MESMA fórmula do daycut.lua (os.time()-corte*3600) em Lua
+   e compara com Regras.hoje(corte, agora) pra 8 instantes ao redor da virada (corte 4h e 0h). */
+{
+  const instantes = [
+    ['2026-09-02T03:59:00', 4], ['2026-09-02T04:00:00', 4], ['2026-09-02T04:01:00', 4],
+    ['2026-09-02T23:59:00', 4], ['2026-09-03T00:30:00', 4],
+    ['2026-09-02T23:59:00', 0], ['2026-09-03T00:00:30', 0], ['2026-09-02T12:00:00', 0],
+  ];
+  const jsCut = instantes.map(([iso, c]) => R.hoje(c, new Date(iso).getTime()));
+  const luaProg = instantes.map(([iso, c]) => {
+    const [d, t] = iso.split('T'); const [Y, M, D] = d.split('-').map(Number); const [h, mi, se] = t.split(':').map(Number);
+    return `io.write(os.date("%Y-%m-%d", os.time({year=${Y},month=${M},day=${D},hour=${h},min=${mi},sec=${se}}) - ${c} * 3600), "\\n")`;
+  }).join('\n');
+  const tmpCut = join(dir, 'cut.lua'); writeFileSync(tmpCut, luaProg);
+  const luaCut = execFileSync('lua', [tmpCut], { encoding: 'utf8' }).trim().split('\n');
+  cmp('corte do dia lógico (8 instantes, fórmula do daycut)', jsCut, luaCut);
+}
 cmp('financeiro · resumo (sobra/livres)', js.fin, lua.fin);
 
 if (falhas || sentinelasQuebradas) {
