@@ -96,18 +96,7 @@ async function fetchSnapshot(){
 }
 
 // PLUGGY-RECONNECT · lê um arquivo qualquer do repo (ex.: reconnect.json com o connect_token). Null se não achar.
-async function fetchRepoFile(path){
-  const cfg = getCfg();
-  if (cfg && cfg.repo && cfg.pat){
-    const [owner, repo] = cfg.repo.split('/');
-    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=main`;
-    try {
-      const r = await fetch(url, { headers:{ Authorization:`Bearer ${cfg.pat}`, Accept:'application/vnd.github.raw+json' }, cache:'no-store' });
-      return r.ok ? JSON.parse(await r.text()) : null;
-    } catch { return null; }
-  }
-  try { const r = await fetch('./' + path, { cache:'no-store' }); return r.ok ? r.json() : null; } catch { return null; }
-}
+/* AUDIT2-2026-09-02 · fetchRepoFile removido: 0 chamadas (fluxo de reconexão Pluggy morreu no app) */
 
 /* ---------- escrita de evento (celular → inbox do repo) ---------- */
 // FRESCOR-2026-08-24 · idade do BATIMENTO do Mac (snap.pub, truncado em blocos de 6h). O `ts` não serve:
@@ -195,7 +184,9 @@ async function enviarEvento(evt){
 }
 
 async function postEvent(partial){
-  const evt = { id: uuid(), ts: Math.floor(Date.now()/1000), date: todayStr(), source: 'mobile', v: 1, ...partial };
+  /* AUDIT2-2026-09-02 (M3) · `seq` em ms desempata eventos do MESMO segundo no ingest do Mac (o nome
+     do arquivo é uuid aleatório — log-até-100% + finish em <1s podiam inverter e envenenar o finish). */
+  const evt = { id: uuid(), ts: Math.floor(Date.now()/1000), seq: Date.now(), date: todayStr(), source: 'mobile', v: 1, ...partial };
   if (!getCfg() || !getCfg().pat) throw new Error('conecte o token primeiro (engrenagem)');
   /* AUDIT-2026-09-02 · PERSISTE ANTES de enviar. O iOS mata o JS sem aviso (trocar de app, travar a
      tela) — com o PUT em voo e nada na fila, a marcação que a UI já mostrou evaporava. Agora o evento
@@ -247,8 +238,11 @@ async function filaDrenar(){
           /* AUDIT-2026-09-02 · descartar em silêncio deixava o card em "…" pra sempre (_pending nunca
              confirmado) e a marcação sumia sem aviso. Avisa e derruba o otimismo pra UI contar a verdade. */
           try{ flashError('não deu pra enviar "' + evt.type + '" — descartado (' + err.message + ')'); }catch(e2){}
+          /* AUDIT2-2026-09-02 (M1) · render(_lastSnap) não desfazia mutações otimistas feitas NO próprio
+             _lastSnap (item adicionado ficava na tela pra sempre, já que o dedup engole polls iguais).
+             refreshForcado repinta a verdade do servidor — o mesmo fix dos catches, que faltou aqui. */
           _pending = {};
-          if (_lastSnap) try{ render(_lastSnap); }catch(e2){}
+          try{ refreshForcado(); }catch(e2){}
           continue;
         }
         break;                                                // auth ou rede: para e MANTÉM o resto
@@ -566,6 +560,7 @@ function summaryOf(rows){
   let tenho = 0, livres = null;
   const pend = { Receber:0, Fixo:0, 'Variável':0, 'Cartão':0, Investir:0 };
   for (const r of (rows||[])){
+    if (!r) continue;   /* AUDIT2-2026-09-02 (B2) · linha null: o núcleo sobrevive, o fallback lançava */
     if (r.cat === 'Tenho') tenho += r.valor || 0;
     else if (r.status === 'Pago'){ /* realizado */ }
     else if (r.status !== 'Cancelado' && (r.cat in pend)) pend[r.cat] += r.valor || 0;
@@ -1022,6 +1017,10 @@ function render(snap){
   renderCards(snap);
   if (!$('finFull').hidden) renderFinFull();   // mantém a tela cheia do financeiro em sincronia
   if (!$('extratoFull').hidden) renderExtrato();
+  /* AUDIT2-2026-09-02 (B6) · modais abertos ficavam com DOM defasado até a próxima interação */
+  try{ if (!$('musModal').hidden) renderMusModal(); }catch(e){}
+  try{ if (!$('notasModal').hidden) openNotasModal(); }catch(e){}
+  try{ if (!$('listaModal').hidden) openListaModal(); }catch(e){}
 }
 
 /* ---------- loop ---------- */
@@ -1048,7 +1047,9 @@ async function refresh(){
     let cachedSnap = null;
     try{ const c = localStorage.getItem(SNAP_CACHE); if (c) cachedSnap = JSON.parse(c); }
     catch(e2){ try{ localStorage.removeItem(SNAP_CACHE); }catch(e3){} }   // cache corrompido: fora, e segue o fluxo normal
-    if (cachedSnap){ try{ render(cachedSnap); }catch(e2){} flashError('sem conexão — mostrando último'); }
+    if (cachedSnap){ try{ render(cachedSnap); }catch(e2){}
+      /* AUDIT2-2026-09-02 (B3) · token inválido mascarado como "sem conexão" escondia o problema real */
+      flashError(/[Tt]oken/.test(e.message||'') ? (e.message + ' (mostrando último)') : 'sem conexão — mostrando último'); }
     else if (!getCfg()) showOnboarding();          // 1º uso no site público: pede o token
     else showError(e.message || 'falha ao carregar');
   }
@@ -1390,11 +1391,14 @@ function musAddPhone(){
   }
   const titulo = $('musTitulo').value.trim();
   if (!titulo){ flashError('nome?'); return; }
-  postEvent({ type:'musica.add', tipo:$('musTipo').value, titulo, artista:$('musArtista').value.trim() })
+  /* AUDIT2-2026-09-02 (M2) · id REAL gerado aqui (mesmo formato do Mac: mus<epoch><3 dígitos>) e enviado
+     no evento — o id temporário fazia ✓/✕ pré-sync postarem contra um id que o Mac não conhecia, e o
+     handler arquivava sem aplicar (marcação perdida em silêncio). Prioridades/financeiro já faziam assim. */
+  const musId = 'mus' + Math.floor(Date.now()/1000) + String(100 + Math.floor(Math.random()*900));
+  postEvent({ type:'musica.add', id2:musId, tipo:$('musTipo').value, titulo, artista:$('musArtista').value.trim() })
     .then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
-  /* otimista local: aparece na hora */
   if (_lastSnap){ _lastSnap.musicas = _lastSnap.musicas || { itens: [] };
-    _lastSnap.musicas.itens.push({ id:'tmp' + Date.now(), tipo:$('musTipo').value, titulo, artista:$('musArtista').value.trim(), ouvido:false });
+    _lastSnap.musicas.itens.push({ id:musId, tipo:$('musTipo').value, titulo, artista:$('musArtista').value.trim(), ouvido:false });
     renderMusModal(); render(_lastSnap); }
   $('musTitulo').value = ''; $('musArtista').value = ''; $('musTitulo').focus();
 }
@@ -1690,7 +1694,8 @@ const onCardClick = async (e) => {
   // HÁBITOS: marcar/desmarcar um hábito (otimista, igual ao passo do skincare)
   if (ev === 'habito.toggle'){
     const id = btn.dataset.id, target = btn.dataset.done !== '1';
-    _pending['habito.' + id] = target;
+  /* AUDIT2-2026-09-02 (B1) · _pending aqui era auto-cancelante (o flip otimista igualava o alvo e o
+     pendingFor deletava o flag no mesmo render) — mecanismo morto removido; o dedup segura o repaint. */
     optimisticHabito(id);
     try{ await postEvent({ type:'habito.toggle', id, done: target }); schedulePrioRefresh(); }
     catch(err){ delete _pending['habito.' + id]; flashError(err.message || 'falha ao enviar'); refreshForcado(); }

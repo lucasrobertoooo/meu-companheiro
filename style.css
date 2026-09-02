@@ -1,5 +1,7 @@
 /* Companheiro mobile — tema dark portado de companheiro.html (:root DARK-2026-07-04). */
 :root{
+  /* AUDIT2-2026-09-02 (B5) · usadas com fallback desde sempre; agora existem de verdade */
+  --card:rgba(255,255,255,.03); --card2:rgba(255,255,255,.06); --ink2:var(--ink);
   --bg:#101012; --paper:#1b1b1f; --paper-2:#161619; --ink:#ebebee; --ink-soft:#c0c0c6;
   --muted:#8c8c94; --clay:#e8734f; --clay-soft:#3a2a22; --sage:#93b184; --sage-soft:#2a2f28;
   --gold:#d7ab5a; --line:#2c2c31;
@@ -88,8 +90,6 @@ body{
 .ring b{position:relative;font-size:13px;font-weight:800}
 .ring-meta{font-size:13px;color:var(--ink-soft)}
 .ring-meta small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
-.amounts{display:flex;gap:18px;flex-wrap:wrap}
-.amount{font-size:13px}
 .amount b{display:block;font-size:18px;font-weight:800}
 .amount small{color:var(--muted)}
 .todo-empty{font-size:13px;color:var(--muted);padding:4px 2px}
@@ -100,8 +100,8 @@ body{
   color:var(--muted);font-size:12px;font-family:inherit;font-weight:600;cursor:pointer;text-transform:capitalize}
 .ptab.on{background:var(--clay-soft);border-color:#5a3a2c;color:#f2b79e}
 .prio-list{display:flex;flex-direction:column;gap:8px}
-.prio-item{display:flex;align-items:flex-start;gap:10px;background:var(--paper-2);border:1px solid var(--line);
-  border-radius:11px;padding:10px 12px;transition:opacity .2s}
+/* AUDIT2-2026-09-02 · .prio-item duplicado fundido (o transition daqui era morto — o bloco de baixo sobrescrevia) */
+
 .prio-item.wait{opacity:.5}
 .prio-chk{flex:none;width:22px;height:22px;margin-top:1px;border-radius:50%;border:1.7px solid var(--clay);
   background:none;display:grid;place-items:center;color:var(--clay);cursor:pointer;padding:0}
@@ -121,7 +121,6 @@ body{
 .modal textarea{width:100%;margin-top:4px;background:var(--paper-2);border:1px solid var(--line);border-radius:10px;
   padding:10px 12px;color:var(--ink);font-size:14px;font-family:inherit;resize:vertical}
 .modal textarea:focus{outline:none;border-color:var(--clay)}
-.note-item-text{font-size:13px;color:var(--ink-soft);margin:2px 0 12px;line-height:1.4;font-weight:600}
 
 /* reordenar (arrastar) + adicionar + apagar */
 .prio-drag{flex:none;align-self:stretch;display:grid;place-items:center;width:34px;margin:-10px -12px -10px 0;
@@ -136,13 +135,8 @@ body{
 .prio-add .ic-svg{width:15px;height:15px}
 .prio-add:active{background:var(--paper-2)}
 .btn.danger{background:none;border:1px solid #5a2c2c;color:#e79b86;margin-right:auto}
-.skin-row{display:flex;gap:10px}
-.skin-slot{flex:1;background:var(--paper-2);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
-.skin-slot .s-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
-.skin-slot .s-val{font-size:16px;font-weight:800;margin-top:3px}
-.skin-slot.full{background:var(--sage-soft);border-color:#3a4a36}
-.skin-slot.full .s-val{color:#bcd3b0}
-
+.skin-slot .skin-slot .skin-slot.full{background:var(--sage-soft);border-color:#3a4a36}
+.skin-slot.full 
 /* skincare expansível (passos item a item) */
 .skin-rt{margin-bottom:10px}
 .skin-rt:last-child{margin-bottom:0}
@@ -174,20 +168,12 @@ body{
 .mark-btn.done{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0}
 .mark-btn.wait{opacity:.55;cursor:default}
 .mark-btn:disabled{cursor:default}
-.btn-row{display:flex;gap:10px;margin-top:12px}
-.mark-btn.half{margin-top:0;flex:1;padding:11px 8px;font-size:13px}
 
 /* lista de livros (leitura) */
 .book-list{display:flex;flex-direction:column;gap:8px}
-.book-btn{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
-  padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--paper-2);
-  color:var(--ink-soft);font-size:14px;font-family:inherit;font-weight:600;cursor:pointer;text-align:left;transition:opacity .2s}
 .book-btn:active{opacity:.7}
-.book-btn .book-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.book-btn .book-mark{flex:none;font-size:12px;font-weight:700;color:var(--clay)}
-.book-btn.done{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0}
-.book-btn.done .book-mark{color:#bcd3b0}
-.book-btn.wait{opacity:.55;cursor:default}
+.book-btn .book-btn .book-btn.done{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0}
+.book-btn.done .book-btn.wait{opacity:.55;cursor:default}
 /* MOBILE-LEITURA-COMPLETA-2026-07-21 · card de livro com página/%/barra (espelha o widget do Mac) */
 .book-card{display:flex;flex-direction:column;gap:8px;padding:11px 12px;border-radius:12px;
   border:1px solid var(--line);background:var(--paper-2)}
@@ -249,7 +235,6 @@ body.needcfg .onboard{display:block}
 .fin-stat b{font-size:13px;font-weight:700}
 .fin-stat.sobra.pos b{color:var(--sage)}
 .fin-stat.sobra.neg b{color:#e79b86}
-.fin-livres{font-size:12px;color:var(--muted);margin-bottom:12px;text-align:center}
 .fin-livres b{color:var(--ink-soft)}
 .fin-cats{display:flex;flex-direction:column;gap:7px}
 .fin-cathead{width:100%;display:flex;align-items:center;gap:9px;background:var(--paper-2);border:1px solid var(--line);
@@ -317,8 +302,6 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
   background:var(--paper-2);border:1px solid var(--line);border-radius:12px;padding:9px 12px}
 .fin-fresh-lbl{font-size:12px;color:var(--muted)}
 .fin-fresh-acts{display:flex;align-items:center;gap:14px;flex:none}
-.reconnect-hint{font-size:12px;color:var(--muted);line-height:1.45;margin:0 0 6px}
-.reconnect-status{font-size:13px;margin-top:8px;min-height:18px;color:var(--ink-soft)}
 .reconnect-status a{color:var(--clay);font-weight:800;text-decoration:none}
 .reconnect-status a:active{opacity:.7}
 .fin-refresh{flex:none;font-family:inherit;font-size:12px;font-weight:600;color:var(--ink-soft);
@@ -358,11 +341,6 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .dmood.on{border-color:var(--clay);background:var(--clay-soft);color:#f2b79e}
 
 /* ---------- Pélvico (slots) + Reflexão (REFLEXAO/PELVICO-MOBILE-2026-07-15) ---------- */
-.pv-slots{display:flex;gap:8px}
-.pv-slot{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 6px;border-radius:12px;
-  border:1.5px solid var(--line);background:var(--paper-2);color:var(--ink-soft);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
-.pv-slot .ic-svg{width:16px;height:16px}
-.pv-slot.on{background:var(--sage-soft);border-color:#3a4a36;color:#bcd3b0;cursor:default}
 .refl-q{font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:14px;line-height:1.5;color:var(--ink);margin-bottom:10px}
 .refl-ans{font-size:13px;color:var(--ink-soft);line-height:1.45;background:var(--paper-2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:10px;white-space:pre-wrap}
 #reflModal .refl-q{margin-bottom:12px}
@@ -460,7 +438,6 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .skin-stepfreq{display:inline-block;margin-left:6px;font-size:9.5px;font-weight:600;letter-spacing:.02em;padding:1px 6px;border-radius:99px;background:rgba(215,171,90,.16);color:#e3c07f;vertical-align:1px}
 
 /* DAYLOG-MERGE-2026-08-19 */
-.day-fullwarn{margin:8px 0 0;font-size:11.5px;line-height:1.4;color:var(--muted,#8c8c94);background:rgba(215,171,90,.10);border-left:2px solid #d7ab5a;border-radius:4px;padding:7px 9px}
 
 /* PARIDADE-COMER-2026-08-24 · faixa do coach */
 .cm-coach{margin:8px 0 2px;padding:7px 10px;border-radius:9px;background:rgba(147,177,132,.10);border-left:2px solid #93b184;font-size:11.5px;line-height:1.45;color:var(--muted,#8c8c94)}

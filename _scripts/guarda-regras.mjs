@@ -217,6 +217,16 @@ cmp('criatura · humor (radiante/fome/escondido)', js.humor, lua.humor);
   const luaCut = execFileSync('lua', [tmpCut], { encoding: 'utf8' }).trim().split('\n');
   cmp('corte do dia lógico (8 instantes, fórmula do daycut)', jsCut, luaCut);
 }
+/* AUDIT2-2026-09-02 · categorias da lista de leitura existem em DOIS lugares (app.js × leitura.html
+   do Mac) — comparação REAL dos dois arquivos, mesmo padrão da tabela de emojis. */
+{
+  const appTxt = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'app.js'), 'utf8');
+  const macTxt = readFileSync(join(HS, 'leitura.html'), 'utf8');
+  const pegaOrdem = t => { const m = t.match(/CAT_ORDEM\s*=\s*\[([^\]]+)\]/); return m ? m[1].replace(/\s|'/g, '') : null; };
+  const pegaLabel = t => { const m = t.match(/CAT_LABEL\s*=\s*\{([\s\S]*?)\}/); return m ? m[1].replace(/\s/g, '') : null; };
+  cmp('leitura · CAT_ORDEM (app × Mac)', [pegaOrdem(appTxt)], [pegaOrdem(macTxt)]);
+  cmp('leitura · CAT_LABEL (app × Mac)', [pegaLabel(appTxt)], [pegaLabel(macTxt)]);
+}
 cmp('financeiro · resumo (sobra/livres)', js.fin, lua.fin);
 
 if (falhas || sentinelasQuebradas) {

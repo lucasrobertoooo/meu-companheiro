@@ -1,7 +1,7 @@
 // Service worker — cacheia a CASCA do app (offline). NÃO cacheia os DADOS
 // (snapshot.json / GitHub API) — esses são sempre rede; o app.js guarda o último
 // snapshot em localStorage pra exibir offline.
-const CACHE = 'companheiro-shell-v35';
+const CACHE = 'companheiro-shell-v36';
 const SHELL = [
   './', './index.html', './style.css', './app.js', './creature-art.js',
   './_shared/regras.js', './skincare-catalog.js',   // CORE-2026-08-24 · faltavam no cache offline
@@ -52,8 +52,11 @@ self.addEventListener('fetch', e => {
   // então updates do app propagam no próximo open (sem bump manual de versão).
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const cached = await cache.match(e.request);
-    const network = fetch(e.request).then(r => { if (r && r.ok) cache.put(e.request, r.clone()); return r; }).catch(() => null);
+    /* AUDIT2-2026-09-02 (B4) · chave sem querystring: o "Abrir no navegador" gera ?r=<timestamp> único
+       por toque e cada um virava entrada NOVA no cache pra sempre. A casca não varia por query. */
+    const chave = (url.origin === self.location.origin) ? new Request(url.origin + url.pathname) : e.request;
+    const cached = await cache.match(chave);
+    const network = fetch(e.request).then(r => { if (r && r.ok) cache.put(chave, r.clone()); return r; }).catch(() => null);
     return cached || (await network) || fetch(e.request);
   })());
 });
