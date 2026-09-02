@@ -864,8 +864,19 @@ function renderCards(snap){
       body:`<div class="book-acts"><button class="mini-btn" data-ev="leit.lista">📚 lista de leitura (${nLista})</button></div>`, done:false, mini:'lido' });
   }
 
+  // PÍLULA DO DIA — MENTE-2026-09-02 · espelho do card do hub (mesma seleção; "li" marca no Mac)
+  if (snap.pilula && snap.pilula.titulo){
+    const pl = snap.pilula, pend = pendingFor('pilula', !!pl.lida);
+    const body = `<div class="pil-cat">${escapeHtml(pl.categoria || 'saúde sexual')}</div>
+      <div><b>${escapeHtml(pl.titulo)}</b></div>
+      <div class="pil-claim">${escapeHtml(pl.claim || '')}</div>
+      <div class="pv-btns"><button class="mark-btn" data-ev="pilula.abrir">ler completa</button>
+      ${pl.lida || pend ? '' : '<button class="mark-btn" data-ev="pilula.li">✓ li</button>'}</div>`;
+    daily.push({ key:'pilula', title:'Pílula do dia', ic:'💊', badge:'', body, done: !!pl.lida, mini:'lida' });
+  }
+
   // ---- ordena e renderiza ---- (Fechar o dia/Reflexão são de fim de dia → vão pro fim; ORDEM-2026-07-16)
-  const CARD_ORDER = { agua:1, comer:2, remedios:3, prio:4, habitos:5, skin:6, med:7, mob:8, pelv:9, leit:10, reflexao:11, daylog:12 };
+  const CARD_ORDER = { agua:1, comer:2, remedios:3, prio:4, habitos:5, skin:6, med:7, mob:8, pelv:9, leit:10, pilula:10.5, reflexao:11, daylog:12 };
   const ord = c => (CARD_ORDER[c.key] || 50);
   const parts = [];
   const pend = daily.filter(c => !c.done).sort((a,b) => ord(a)-ord(b));
@@ -883,6 +894,18 @@ function renderCards(snap){
   });
   // FINANCEIRO — ferramenta (nunca "conclui"): fixo no fim.
   if (snap.financeiro) parts.push(card('Financeiro', icon('financeiro'), fmtMes(snap.financeiro.mes), finHomeBody(snap.financeiro)));
+
+  // MENTE-2026-09-02 · notas / terapia / vícios — ferramentas de apoio, sem estado de "concluído"
+  if (snap.notas || snap.terapia || snap.vicios){
+    const nN = Array.isArray(snap.notas) ? snap.notas.length : 0;
+    const tR = (snap.terapia && snap.terapia.registros) || 0;
+    const vH = (snap.vicios && snap.vicios.haltsHoje) || 0;
+    parts.push(`<div class="mente-row">
+      <button data-ev="mente.notas">🗒 Notas<small>${nN} nota${nN === 1 ? '' : 's'}</small></button>
+      <button data-ev="mente.terapia">🧠 Terapia<small>${tR} registro${tR === 1 ? '' : 's'}</small></button>
+      <button data-ev="mente.vicios">🌊 Vícios<small>${vH ? vH + ' check hoje' : 'check HALT'}</small></button>
+    </div>`);
+  }
 
   $('cards').innerHTML = parts.join('');
 }
@@ -1168,6 +1191,126 @@ const CAT_LABEL = { vampiro:'🩸 vampiro', terror:'👁 terror', teatro:'🎭 t
   audiovisual:'🎬 audiovisual', canone:'📚 cânone', transformadores:'⚡ transformadores', outros:'📕 outros' };
 let _catAberta = {}, _startCtx = null, _finishCtx = null, _startFmt = 'paper';
 
+/* ===== MENTE-2026-09-02 · pílula / notas / terapia / vícios ===== */
+function openPilulaModal(){
+  const pl = _lastSnap && _lastSnap.pilula; if (!pl) return;
+  $('pilCat').textContent = pl.categoria || 'saúde sexual';
+  $('pilTitulo').textContent = pl.titulo || '';
+  $('pilTexto').textContent = pl.texto || pl.claim || '';
+  $('pilApl').textContent = pl.aplicacao || '';
+  $('pilLi').hidden = !!pl.lida;
+  $('pilulaModal').hidden = false;
+}
+function marcarPilulaLida(){
+  $('pilulaModal').hidden = true;
+  _pending['pilula'] = true;
+  if (_lastSnap) render(_lastSnap);
+  postEvent({ type:'pilula.read' }).then(schedulePrioRefresh)
+    .catch(err => { delete _pending['pilula']; flashError(err.message || 'falha ao enviar'); if (_lastSnap) render(_lastSnap); });
+}
+
+let _notaEdit = null;   // null = nova · {id} = editando
+function openNotasModal(){
+  const ns = (_lastSnap && Array.isArray(_lastSnap.notas)) ? _lastSnap.notas : [];
+  $('notasN').textContent = `· ${ns.length}`;
+  $('notasCorpo').innerHTML = ns.map(n => `
+    <button class="nota-item" data-nid="${escapeHtml(n.id)}" style="all:unset;display:flex;gap:9px;width:100%;box-sizing:border-box;padding:9px 4px;border-bottom:1px dashed var(--line)">
+      <span class="nota-dot" style="background:${escapeHtml(n.color || '#999')}"></span>
+      <span class="nota-tit"><b>${escapeHtml(n.title || '(sem título)')}</b><span>${escapeHtml(n.body || '')}</span></span>
+      ${n.pinned ? '<span class="nota-pin">📌</span>' : ''}
+    </button>`).join('') || '<div class="leit-hint">nenhuma nota — cria a primeira aí embaixo</div>';
+  $('notasModal').hidden = false;
+}
+function openNotaEdit(id){
+  const ns = (_lastSnap && Array.isArray(_lastSnap.notas)) ? _lastSnap.notas : [];
+  const n = id ? ns.find(x => x.id === id) : null;
+  _notaEdit = n ? { id: n.id, pinned: !!n.pinned } : null;
+  $('notaEditTitulo').textContent = n ? 'Editar nota' : 'Nova nota';
+  $('neTitulo').value = n ? (n.title || '') : '';
+  $('neCorpo').value = n ? (n.body || '') : '';
+  $('neApagar').hidden = !n;
+  $('nePin').hidden = !n;
+  if (n) $('nePin').textContent = n.pinned ? 'soltar 📌' : '📌 fixar';
+  $('notaEditModal').hidden = false;
+  if (!n) setTimeout(() => { try { $('neTitulo').focus(); } catch(e){} }, 60);
+}
+function closeNotaEdit(){ $('notaEditModal').hidden = true; _notaEdit = null; }
+function saveNotaEdit(){
+  const title = $('neTitulo').value.trim(), body = $('neCorpo').value.trim();
+  if (!title && !body){ flashError('nota vazia'); return; }
+  const evt = _notaEdit ? { type:'nota.edit', id:_notaEdit.id, title, body } : { type:'nota.add', title, body };
+  closeNotaEdit(); $('notasModal').hidden = true;
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+}
+function apagarNota(){
+  if (!_notaEdit) return;
+  if (!confirm('Apagar esta nota?')) return;
+  const evt = { type:'nota.remove', id:_notaEdit.id };
+  closeNotaEdit(); $('notasModal').hidden = true;
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+}
+function togglePinNota(){
+  if (!_notaEdit) return;
+  const evt = { type:'nota.pin', id:_notaEdit.id, pinned: !_notaEdit.pinned };
+  closeNotaEdit(); $('notasModal').hidden = true;
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+}
+
+let _terTab = 'reg';
+function openTerapiaModal(){
+  _terTab = 'reg'; _terPaint();
+  ['trSit','trEmo','trTho','trResp','tg1','tg2','tg3','tgPessoa'].forEach(id => { $(id).value = ''; });
+  $('trScore').value = 5; $('trScoreV').textContent = '5';
+  $('terapiaModal').hidden = false;
+}
+function _terPaint(){
+  document.querySelectorAll('#terTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === _terTab));
+  $('terReg').hidden = _terTab !== 'reg';
+  $('terGrat').hidden = _terTab !== 'grat';
+}
+function saveTerapia(){
+  let evt;
+  if (_terTab === 'reg'){
+    const sit = $('trSit').value.trim(), tho = $('trTho').value.trim();
+    if (!sit && !tho){ flashError('conta pelo menos a situação ou o pensamento'); return; }
+    evt = { type:'terapia.registro', situation:sit, emotion:$('trEmo').value.trim(),
+            emotionScore:+$('trScore').value, thought:tho, distortion:'', response:$('trResp').value.trim() };
+  } else {
+    const items = ['tg1','tg2','tg3'].map(id => $(id).value.trim()).filter(Boolean).map(t => ({ thing:t, why:'' }));
+    if (!items.length){ flashError('pelo menos uma coisa boa'); return; }
+    evt = { type:'terapia.gratidao', items, person:$('tgPessoa').value.trim(), personWhy:'' };
+  }
+  $('terapiaModal').hidden = true;
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+}
+
+let _vicTab = 'halt', _halt = {};
+function openViciosModal(){
+  _vicTab = 'halt'; _halt = {}; _vicPaint();
+  $('vsAntes').value = 5; $('vsAntesV').textContent = '5';
+  $('vsDepois').value = 2; $('vsDepoisV').textContent = '2';
+  $('vsMin').value = ''; $('vsGatilho').value = '';
+  $('viciosModal').hidden = false;
+}
+function _vicPaint(){
+  document.querySelectorAll('#vicTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === _vicTab));
+  $('vicHalt').hidden = _vicTab !== 'halt';
+  $('vicSurf').hidden = _vicTab !== 'surf';
+  document.querySelectorAll('#haltChips button').forEach(b => b.classList.toggle('on', !!_halt[b.dataset.h]));
+}
+function saveVicios(){
+  let evt;
+  if (_vicTab === 'halt'){
+    if (!Object.values(_halt).some(Boolean)){ flashError('marca pelo menos um'); return; }
+    evt = { type:'vicios.halt', hungry:!!_halt.hungry, angry:!!_halt.angry, lonely:!!_halt.lonely, tired:!!_halt.tired };
+  } else {
+    evt = { type:'vicios.surf', before:+$('vsAntes').value, after:+$('vsDepois').value,
+            duration:(parseInt($('vsMin').value, 10) || 0) * 60, trigger:$('vsGatilho').value.trim(), note:'' };
+  }
+  $('viciosModal').hidden = true;
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+}
+
 function openListaModal(){
   const lst = (_lastSnap && _lastSnap.leituraLista) || null;
   if (!lst){ flashError('lista ainda não sincronizada'); return; }
@@ -1300,9 +1443,9 @@ function openDayModal(){
   // o "revisar" mandava texto em branco, apagando o registro do dia no arquivo sagrado.
   $('dayNote').value = (dl && dl.wellDone) || '';
   $('dayCap').value = (dl && dl.capText) || '';
-  // aviso quando o dia foi fechado no modo completo no Mac (aprendizado/faria diferente ficam só lá)
-  const fw = $('dayFullWarn');
-  if (fw) fw.hidden = !(dl && dl.hasFull);
+  /* DIARIO-MOBILE-2026-09-02 · modo completo aqui também — pré-popula pra edição não apagar o do Mac */
+  $('dayLearn').value = (dl && dl.learning) || '';
+  $('dayChange').value = (dl && dl.wouldChange) || '';
   [...document.querySelectorAll('#dayMoods .dmood')].forEach(b => b.classList.toggle('on', b.dataset.mood === _dayMood));
   $('daySave').disabled = !_dayMood;
   $('dayModal').hidden = false;
@@ -1312,11 +1455,13 @@ function saveDayModal(){
   if (!_dayMood) return;
   const wellDone = $('dayNote').value.trim();
   const capText = $('dayCap').value.trim();
+  const learning = $('dayLearn').value.trim();
+  const wouldChange = $('dayChange').value.trim();
   closeDayModal();
   _pending['daylog'] = true;              // pendente até o snapshot confirmar (hub aplica)
   if (_lastSnap) render(_lastSnap);
   // `prefilled` avisa o Mac que este cliente abriu o modal já preenchido → limpar de propósito funciona.
-  postEvent({ type:'daylog.close', mood:_dayMood, wellDone, capText, prefilled:true })
+  postEvent({ type:'daylog.close', mood:_dayMood, wellDone, capText, learning, wouldChange, prefilled:true })
     .then(() => { [6, 14, 24, 34].forEach(s => setTimeout(refresh, s * 1000)); })
     .catch(err => { delete _pending['daylog']; flashError(err.message || 'falha ao enviar'); if (_lastSnap) render(_lastSnap); });
 }
@@ -1418,6 +1563,11 @@ const onCardClick = async (e) => {
     return;
   }
   if (ev === 'intent.edit'){ openEditor(Number(btn.dataset.id), btn.dataset.text || '', btn.dataset.note || ''); return; }
+  if (ev === 'pilula.abrir'){ openPilulaModal(); return; }
+  if (ev === 'pilula.li'){ marcarPilulaLida(); return; }
+  if (ev === 'mente.notas'){ openNotasModal(); return; }
+  if (ev === 'mente.terapia'){ openTerapiaModal(); return; }
+  if (ev === 'mente.vicios'){ openViciosModal(); return; }
   if (ev === 'leit.lista'){ openListaModal(); return; }
   if (ev === 'leit.finish'){ openFinishModal(btn.dataset.book, btn.dataset.title || 'este livro'); return; }
   if (ev === 'leit.log'){ openLeitModal(btn.dataset.book, btn.dataset.title || '', Number(btn.dataset.cur) || 0,
@@ -1611,6 +1761,31 @@ $('leitCancel').addEventListener('click', closeLeitModal);
 $('leitModal').addEventListener('click', e => { if (e.target === $('leitModal')) closeLeitModal(); });
 $('leitPage').addEventListener('keydown', e => { if (e.key === 'Enter') saveLeitModal(); });
 ['leitRemH','leitRemM'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') saveLeitModal(); }));
+/* MENTE-2026-09-02 · pílula / notas / terapia / vícios */
+$('pilFechar').addEventListener('click', () => { $('pilulaModal').hidden = true; });
+$('pilLi').addEventListener('click', marcarPilulaLida);
+$('pilulaModal').addEventListener('click', e => { if (e.target === $('pilulaModal')) $('pilulaModal').hidden = true; });
+$('notasFechar').addEventListener('click', () => { $('notasModal').hidden = true; });
+$('notaNova').addEventListener('click', () => openNotaEdit(null));
+$('notasModal').addEventListener('click', e => { if (e.target === $('notasModal')) $('notasModal').hidden = true; });
+$('notasCorpo').addEventListener('click', e => { const it = e.target.closest('[data-nid]'); if (it) openNotaEdit(it.dataset.nid); });
+$('neSave').addEventListener('click', saveNotaEdit);
+$('neCancel').addEventListener('click', closeNotaEdit);
+$('neApagar').addEventListener('click', apagarNota);
+$('nePin').addEventListener('click', togglePinNota);
+$('notaEditModal').addEventListener('click', e => { if (e.target === $('notaEditModal')) closeNotaEdit(); });
+$('terTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _terTab = b.dataset.t; _terPaint(); } });
+$('trScore').addEventListener('input', () => { $('trScoreV').textContent = $('trScore').value; });
+$('terSave').addEventListener('click', saveTerapia);
+$('terCancel').addEventListener('click', () => { $('terapiaModal').hidden = true; });
+$('terapiaModal').addEventListener('click', e => { if (e.target === $('terapiaModal')) $('terapiaModal').hidden = true; });
+$('vicTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _vicTab = b.dataset.t; _vicPaint(); } });
+$('haltChips').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _halt[b.dataset.h] = !_halt[b.dataset.h]; _vicPaint(); } });
+$('vsAntes').addEventListener('input', () => { $('vsAntesV').textContent = $('vsAntes').value; });
+$('vsDepois').addEventListener('input', () => { $('vsDepoisV').textContent = $('vsDepois').value; });
+$('vicSave').addEventListener('click', saveVicios);
+$('vicCancel').addEventListener('click', () => { $('viciosModal').hidden = true; });
+$('viciosModal').addEventListener('click', e => { if (e.target === $('viciosModal')) $('viciosModal').hidden = true; });
 /* PARIDADE-LEITURA-2026-08-30 · lista / começar / concluir */
 $('listaFechar').addEventListener('click', closeListaModal);
 $('listaAdd').addEventListener('click', openListaAddModal);

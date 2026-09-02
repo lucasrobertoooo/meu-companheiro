@@ -116,12 +116,104 @@
         <button class="dmood" data-mood="normal"><span class="dmood-emoji">😐</span>normal</button>
         <button class="dmood" data-mood="puxado"><span class="dmood-emoji">😩</span>puxado</button>
       </div>
-      <label>Uma frase (opcional) <textarea id="dayNote" rows="2" placeholder="o que sobrou de bom — ou o que pesou"></textarea>
-      <p id="dayFullWarn" class="day-fullwarn" hidden>Este dia foi fechado no modo completo no Mac — <b>aprendizado</b> e <b>faria diferente</b> só podem ser editados lá (aqui ficam preservados).</p></label>
+      <label>Uma frase (opcional) <textarea id="dayNote" rows="2" placeholder="o que sobrou de bom — ou o que pesou"></textarea></label>
+      <!-- DIARIO-MOBILE-2026-09-02 · modo completo no celular: os dois campos que eram só do Mac -->
+      <label>O que aprendi (opcional) <textarea id="dayLearn" rows="2" placeholder="uma coisa que o dia te ensinou"></textarea></label>
+      <label>Faria diferente (opcional) <textarea id="dayChange" rows="2" placeholder="o que você mudaria se o dia recomeçasse"></textarea></label>
       <label>Uma boa notícia? (opcional · fica privado) <textarea id="dayCap" rows="2" placeholder="algo concreto que valeu hoje"></textarea></label>
       <div class="modal-actions">
         <button id="dayCancel" class="btn ghost">agora não</button>
         <button id="daySave" class="btn" disabled>✓ encerrar dia</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MENTE-2026-09-02 · pílula do dia + notas + terapia + vícios -->
+  <div class="modal-backdrop" id="pilulaModal" hidden>
+    <div class="modal modal-tall">
+      <div class="pil-cat" id="pilCat"></div>
+      <h3 id="pilTitulo"></h3>
+      <div class="lista-corpo"><p class="pil-texto" id="pilTexto"></p><p class="pil-apl" id="pilApl"></p></div>
+      <div class="modal-actions">
+        <button id="pilFechar" class="btn ghost">fechar</button>
+        <button id="pilLi" class="btn">✓ li, aprendi</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="notasModal" hidden>
+    <div class="modal modal-tall">
+      <h3>Notas <span class="lista-n" id="notasN"></span></h3>
+      <div class="lista-corpo" id="notasCorpo"></div>
+      <div class="modal-actions">
+        <button id="notaNova" class="btn ghost">+ nova</button>
+        <button id="notasFechar" class="btn">fechar</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="notaEditModal" hidden>
+    <div class="modal">
+      <h3 id="notaEditTitulo">Nota</h3>
+      <label>Título <input type="text" id="neTitulo" placeholder="ex: Ideia pro vídeo"></label>
+      <label>Texto <textarea id="neCorpo" rows="5" placeholder="escreve aí"></textarea></label>
+      <div class="modal-actions">
+        <button id="neApagar" class="btn ghost sm" hidden>apagar</button>
+        <button id="nePin" class="btn ghost sm" hidden>📌 fixar</button>
+        <button id="neCancel" class="btn ghost">cancelar</button>
+        <button id="neSave" class="btn">✓ salvar</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="terapiaModal" hidden>
+    <div class="modal modal-tall">
+      <h3>Terapia</h3>
+      <div class="start-fmt" id="terTabs">
+        <button data-t="reg" class="on">registro</button><button data-t="grat">gratidão</button>
+      </div>
+      <div class="lista-corpo">
+        <div id="terReg">
+          <label>Situação <textarea id="trSit" rows="2" placeholder="o que aconteceu"></textarea></label>
+          <label>Emoção <input type="text" id="trEmo" placeholder="ex: ansiedade, raiva, vergonha"></label>
+          <label>Intensidade <span id="trScoreV" class="lista-n">5</span> <input type="range" id="trScore" min="0" max="10" value="5"></label>
+          <label>Pensamento <textarea id="trTho" rows="2" placeholder="o que passou pela cabeça"></textarea></label>
+          <label>Resposta mais gentil (opcional) <textarea id="trResp" rows="2" placeholder="o que você diria pra um amigo nessa situação"></textarea></label>
+        </div>
+        <div id="terGrat" hidden>
+          <label>Grato por... <input type="text" id="tg1" placeholder="1ª coisa"></label>
+          <label>&nbsp;<input type="text" id="tg2" placeholder="2ª (opcional)"></label>
+          <label>&nbsp;<input type="text" id="tg3" placeholder="3ª (opcional)"></label>
+          <label>Uma pessoa (opcional) <input type="text" id="tgPessoa" placeholder="quem fez diferença hoje"></label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="terCancel" class="btn ghost">cancelar</button>
+        <button id="terSave" class="btn">✓ guardar</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="viciosModal" hidden>
+    <div class="modal modal-tall">
+      <h3>Vícios</h3>
+      <div class="start-fmt" id="vicTabs">
+        <button data-t="halt" class="on">check HALT</button><button data-t="surf">surfei a fissura</button>
+      </div>
+      <div class="lista-corpo">
+        <div id="vicHalt">
+          <p class="leit-hint">Antes de ceder, cheque o que está por trás:</p>
+          <div class="halt-chips" id="haltChips">
+            <button data-h="hungry">🍽 fome</button><button data-h="angry">😤 raiva</button>
+            <button data-h="lonely">🫥 solidão</button><button data-h="tired">🥱 cansaço</button>
+          </div>
+        </div>
+        <div id="vicSurf" hidden>
+          <label>Fissura antes <span id="vsAntesV" class="lista-n">5</span> <input type="range" id="vsAntes" min="0" max="10" value="5"></label>
+          <label>Depois de surfar <span id="vsDepoisV" class="lista-n">2</span> <input type="range" id="vsDepois" min="0" max="10" value="2"></label>
+          <label>Quantos minutos durou <input type="number" id="vsMin" min="0" inputmode="numeric" placeholder="ex: 5"></label>
+          <label>Gatilho (opcional) <input type="text" id="vsGatilho" placeholder="o que acendeu"></label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="vicCancel" class="btn ghost">cancelar</button>
+        <button id="vicSave" class="btn">✓ registrar</button>
       </div>
     </div>
   </div>

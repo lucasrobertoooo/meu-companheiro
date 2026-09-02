@@ -159,6 +159,10 @@ const SENTINELAS = [
   ['companheiro_sync.lua',  /if ds == 2 then return "fome" end/,            'criatura: humor "fome" em 2 dias'],
   ['companheiro_sync.lua',  /radiante="✨"/,                                 'criatura: emoji do humor'],
   ['companheiro_sync.lua',  /local LEVELS\s*=\s*\{0,500,1000,2000,3000,4000,5000,7000,10000,20000\}/, 'criatura: tabela de níveis'],
+  // MENTE-2026-09-02 · a seleção da pílula do dia existe em DOIS lugares (hub JS + snapshot Lua)
+  ['companheiro.html',      /passivas\[\(\(n%passivas\.length\)/,       'pílula: indexação por dia no hub'],
+  ['companheiro.html',      /_pelvicIds=\['assoalho_pelvico_kegel','reverse_kegel_hipertonia','ponr_calibragem','stop_start_edging'\]/, 'pílula: exclusão das práticas de pélvico (hub)'],
+  ['companheiro_sync.lua',  /assoalho_pelvico_kegel = true, reverse_kegel_hipertonia = true/, 'pílula: exclusão das práticas de pélvico (snapshot)'],
 ];
 let sentinelasQuebradas = 0;
 for (const [arq, re, desc] of SENTINELAS) {
