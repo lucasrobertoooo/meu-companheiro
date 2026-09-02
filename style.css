@@ -498,3 +498,31 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 }
 .openweb:active{opacity:.5;}
 .openweb small{font-size:10.5px; font-weight:500; opacity:.7;}
+
+/* PARIDADE-LEITURA-2026-08-30 · lista de futuros + concluir */
+.book-acts{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.book-acts .mini-btn{flex:1;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);
+  background:var(--card2,rgba(255,255,255,.04));color:var(--ink);font-size:13px;text-align:center}
+.book-done-btn{padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:13px}
+.modal-tall{max-height:82vh;display:flex;flex-direction:column}
+.modal-tall .lista-corpo{overflow-y:auto;-webkit-overflow-scrolling:touch;margin:4px -4px;padding:0 4px;flex:1}
+.lista-n{font-size:13px;color:var(--muted);font-weight:400}
+.cat-sec{margin-bottom:6px}
+.cat-head{width:100%;display:flex;justify-content:space-between;align-items:center;padding:9px 10px;border:1px solid var(--line);
+  border-radius:10px;background:var(--card2,rgba(255,255,255,.04));color:var(--ink);font-size:14px}
+.cat-head .n{color:var(--muted);font-size:12.5px}
+.cat-livros{padding:4px 2px 2px}
+.lst-item{display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px dashed var(--line)}
+.lst-item:last-child{border-bottom:none}
+.lst-tit{flex:1;min-width:0}
+.lst-tit b{display:block;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lst-tit span{font-size:12px;color:var(--muted)}
+.lst-comecar{padding:6px 10px;border-radius:9px;border:1px solid var(--line);background:transparent;color:var(--ink);font-size:12.5px;white-space:nowrap}
+.lst-comecar[disabled]{opacity:.4}
+.start-fmt{display:flex;gap:8px;margin:6px 0 10px}
+.start-fmt button{flex:1;padding:9px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:14px}
+.start-fmt button.on{background:var(--card2,rgba(255,255,255,.06));color:var(--ink);border-color:var(--ink2,var(--ink))}
+.stars{display:flex;gap:10px;justify-content:center;font-size:34px;margin:10px 0 6px}
+.stars span{opacity:.3;cursor:pointer}
+.stars span.on{opacity:1}
+.btn.sm{font-size:12.5px;padding:8px 10px}

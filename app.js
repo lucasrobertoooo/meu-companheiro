@@ -843,11 +843,25 @@ function renderCards(snap){
         <div class="book-bar"><div class="book-fill" style="width:${pct}%"></div></div>
         <div class="book-meta"><span>${meta}</span>
           <button class="book-reg" data-ev="leit.log" ${dataAttrs}>${b.done?(b.audio?'atualizar tempo':'atualizar página'):'registrar leitura'}</button></div>
+        <div class="book-acts"><button class="book-done-btn" data-ev="leit.finish" data-book="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}">✔ concluir</button></div>
       </div>`;
     }).join('');
     const stk = snap.leitura.streak || 0;
+    /* PARIDADE-LEITURA-2026-08-30 · lista de futuros + terminados (antes só existiam no widget do Mac) */
+    const lst = snap.leituraLista || null;
+    const nLista = (lst && Array.isArray(lst.toRead)) ? lst.toRead.length : 0;
+    const rodape = lst ? `<div class="book-acts">
+        <button class="mini-btn" data-ev="leit.lista">📚 lista de leitura (${nLista})</button>
+        <button class="mini-btn" data-ev="leit.lista" data-sec="fin" disabled style="pointer-events:none">${lst.fin || 0} terminado${(lst.fin||0)===1?'':'s'}${lst.finAno?` · ${lst.finAno} no ano`:''}</button>
+      </div>` : '';
     daily.push({ key:'leit', title:'Leitura', ic:icon('leitura'), badge: stk > 0 ? `${stk}d` : '',
-      body:`<div class="book-list">${rows}</div>`, done: books.every(b => b.done), mini:'lido' });
+      body:`<div class="book-list">${rows}</div>${rodape}`, done: books.length > 0 && books.every(b => b.done), mini:'lido' });
+  } else if (snap.leituraLista){
+    /* sem livro aberto: o card vive só com a lista (no Mac o backlog aparece sempre) */
+    const lst = snap.leituraLista;
+    const nLista = Array.isArray(lst.toRead) ? lst.toRead.length : 0;
+    daily.push({ key:'leit', title:'Leitura', ic:icon('leitura'), badge:'',
+      body:`<div class="book-acts"><button class="mini-btn" data-ev="leit.lista">📚 lista de leitura (${nLista})</button></div>`, done:false, mini:'lido' });
   }
 
   // ---- ordena e renderiza ---- (Fechar o dia/Reflexão são de fim de dia → vão pro fim; ORDEM-2026-07-16)
@@ -1147,6 +1161,112 @@ function openLeitModal(bookId, title, cur, tot, audio){
   }
 }
 function closeLeitModal(){ $('leitModal').hidden = true; _leitBook = null; }
+
+/* ===== PARIDADE-LEITURA-2026-08-30 · lista de futuros / começar / concluir (espelho do leitura.html) ===== */
+const CAT_ORDEM = ['vampiro','terror','teatro','danca','audiovisual','canone','transformadores','outros'];
+const CAT_LABEL = { vampiro:'🩸 vampiro', terror:'👁 terror', teatro:'🎭 teatro e dramaturgia', danca:'💃 dança',
+  audiovisual:'🎬 audiovisual', canone:'📚 cânone', transformadores:'⚡ transformadores', outros:'📕 outros' };
+let _catAberta = {}, _startCtx = null, _finishCtx = null, _startFmt = 'paper';
+
+function openListaModal(){
+  const lst = (_lastSnap && _lastSnap.leituraLista) || null;
+  if (!lst){ flashError('lista ainda não sincronizada'); return; }
+  const podeComecar = (lst.abertos || 0) < (lst.max || 3);
+  const porCat = {};
+  (Array.isArray(lst.toRead) ? lst.toRead : []).forEach(b => {
+    const c = CAT_LABEL[b.cat] ? b.cat : 'outros';
+    (porCat[c] = porCat[c] || []).push(b);
+  });
+  $('listaN').textContent = `· ${(lst.toRead || []).length} livros`;
+  $('listaCorpo').innerHTML = CAT_ORDEM.filter(c => porCat[c] && porCat[c].length).map(c => {
+    const aberta = !!_catAberta[c];
+    const livros = porCat[c].map(b => `
+      <div class="lst-item">
+        <div class="lst-tit"><b>${escapeHtml(b.title)}</b>${b.author ? `<span>${escapeHtml(b.author)}</span>` : ''}</div>
+        <button class="lst-comecar" data-tid="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}"
+          data-author="${escapeHtml(b.author || '')}" data-fmt="${b.format || ''}" ${podeComecar ? '' : 'disabled'}>começar</button>
+      </div>`).join('');
+    return `<div class="cat-sec">
+      <button class="cat-head" data-cat="${c}"><span>${CAT_LABEL[c]}</span><span class="n">${porCat[c].length} ${aberta ? '▾' : '▸'}</span></button>
+      <div class="cat-livros" ${aberta ? '' : 'hidden'}>${livros}</div>
+    </div>`;
+  }).join('') || '<div class="leit-hint">lista vazia — adiciona um livro aí embaixo</div>';
+  if (!podeComecar) $('listaN').textContent += ` · ${lst.abertos}/${lst.max} abertos (termina um pra começar outro)`;
+  $('listaModal').hidden = false;
+}
+function closeListaModal(){ $('listaModal').hidden = true; }
+
+function openStartModal(ctx){        // ctx = {tId, title, author, format?} · format da lista trava o toggle
+  _startCtx = ctx;
+  _startFmt = (ctx.format === 'audio' || ctx.format === 'paper') ? ctx.format : 'paper';
+  $('startTitulo').textContent = `Começar “${ctx.title}”`;
+  $('startSub').textContent = ctx.author || '';
+  $('startFmt').hidden = !!ctx.format;   // formato já conhecido → sem escolha
+  _startFmtPaint();
+  $('startTot').value = ''; $('startCur').value = '';
+  $('startModal').hidden = false;
+  setTimeout(() => { try { $('startTot').focus(); } catch(e){} }, 60);
+}
+function _startFmtPaint(){
+  document.querySelectorAll('#startFmt button').forEach(b => b.classList.toggle('on', b.dataset.f === _startFmt));
+  const audio = _startFmt === 'audio';
+  $('startTotLbl').firstChild.textContent = audio ? 'Duração total (min) ' : 'Total de páginas ';
+  $('startCurLbl').firstChild.textContent = audio ? 'Onde você está (min, opcional) ' : 'Onde você está (opcional) ';
+}
+function closeStartModal(){ $('startModal').hidden = true; _startCtx = null; }
+function saveStartModal(){
+  if (!_startCtx) return;
+  const total = parseInt($('startTot').value, 10);
+  if (isNaN(total) || total < 1){ flashError(_startFmt === 'audio' ? 'quantos minutos dura?' : 'quantas páginas tem?'); return; }
+  const cur = Math.max(0, parseInt($('startCur').value, 10) || 0);
+  const evt = { type:'leitura.start', tId:_startCtx.tId, title:_startCtx.title, author:_startCtx.author || '',
+                format:_startFmt, total, cur: Math.min(cur, total) };
+  closeStartModal(); closeListaModal();
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+  flashError('começando “' + _startCtx0(evt) + '”…');
+}
+function _startCtx0(evt){ return (evt.title || '').slice(0, 24); }
+
+function openFinishModal(bookId, title){
+  _finishCtx = { id: bookId, rating: 4 };
+  $('finishTitulo').textContent = `Concluiu “${title}”`;
+  _finishPaint();
+  $('finishModal').hidden = false;
+}
+function _finishPaint(){
+  $('finishStars').innerHTML = [1,2,3,4,5].map(n =>
+    `<span class="${n <= _finishCtx.rating ? 'on' : ''}" data-n="${n}">★</span>`).join('');
+}
+function closeFinishModal(){ $('finishModal').hidden = true; _finishCtx = null; }
+function saveFinishModal(){
+  if (!_finishCtx) return;
+  const evt = { type:'leitura.finish', bookId:_finishCtx.id, rating:_finishCtx.rating };
+  closeFinishModal();
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+}
+function tirarLivro(){
+  if (!_finishCtx) return;
+  if (!confirm('Tirar do “em leitura” sem marcar como concluído?')) return;
+  const evt = { type:'leitura.tirar', bookId:_finishCtx.id };
+  closeFinishModal();
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+}
+
+function openListaAddModal(){
+  $('laTitulo').value = ''; $('laAutor').value = '';
+  if (!$('laCat').options.length) $('laCat').innerHTML = CAT_ORDEM.map(c => `<option value="${c}">${CAT_LABEL[c]}</option>`).join('');
+  $('laCat').value = 'outros';
+  $('listaAddModal').hidden = false;
+  setTimeout(() => { try { $('laTitulo').focus(); } catch(e){} }, 60);
+}
+function closeListaAddModal(){ $('listaAddModal').hidden = true; }
+function saveListaAdd(){
+  const title = $('laTitulo').value.trim();
+  if (!title){ flashError('título?'); return; }
+  const evt = { type:'leitura.addlista', title, author:$('laAutor').value.trim(), cat:$('laCat').value };
+  closeListaAddModal();
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refresh(); });
+}
 function saveLeitModal(){
   if (!_leitBook) return;
   let v;
@@ -1159,7 +1279,11 @@ function saveLeitModal(){
     if (isNaN(v) || v < 0){ flashError('coloca onde você parou'); return; }
   }
   const id = _leitBook.id, key = 'leitura:' + id;
+  const chegouAoFim = _leitBook.tot > 0 && v >= _leitBook.tot;
+  const tituloFim = $('leitModalTitle').textContent;
   closeLeitModal();
+  /* PARIDADE-LEITURA-2026-08-30 · no Mac, chegar a 100% abre o "Concluiu?" sozinho */
+  if (chegouAoFim) setTimeout(() => openFinishModal(id, tituloFim), 400);
   _pending[key] = true;                    // otimista: marca lido até o snapshot confirmar
   if (_lastSnap) render(_lastSnap);
   postEvent({ type:'leitura.log', bookId:id, page:v })
@@ -1294,6 +1418,8 @@ const onCardClick = async (e) => {
     return;
   }
   if (ev === 'intent.edit'){ openEditor(Number(btn.dataset.id), btn.dataset.text || '', btn.dataset.note || ''); return; }
+  if (ev === 'leit.lista'){ openListaModal(); return; }
+  if (ev === 'leit.finish'){ openFinishModal(btn.dataset.book, btn.dataset.title || 'este livro'); return; }
   if (ev === 'leit.log'){ openLeitModal(btn.dataset.book, btn.dataset.title || '', Number(btn.dataset.cur) || 0,
                                         Number(btn.dataset.tot) || 0, btn.dataset.audio === '1'); return; }
   if (ev === 'intent.new'){ openEditor(null, '', ''); return; }
@@ -1485,6 +1611,29 @@ $('leitCancel').addEventListener('click', closeLeitModal);
 $('leitModal').addEventListener('click', e => { if (e.target === $('leitModal')) closeLeitModal(); });
 $('leitPage').addEventListener('keydown', e => { if (e.key === 'Enter') saveLeitModal(); });
 ['leitRemH','leitRemM'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') saveLeitModal(); }));
+/* PARIDADE-LEITURA-2026-08-30 · lista / começar / concluir */
+$('listaFechar').addEventListener('click', closeListaModal);
+$('listaAdd').addEventListener('click', openListaAddModal);
+$('listaModal').addEventListener('click', e => { if (e.target === $('listaModal')) closeListaModal(); });
+$('listaCorpo').addEventListener('click', e => {
+  const h = e.target.closest('.cat-head');
+  if (h){ _catAberta[h.dataset.cat] = !_catAberta[h.dataset.cat]; openListaModal(); return; }
+  const c = e.target.closest('.lst-comecar');
+  if (c && !c.disabled) openStartModal({ tId:c.dataset.tid, title:c.dataset.title, author:c.dataset.author, format:c.dataset.fmt || '' });
+});
+$('laSave').addEventListener('click', saveListaAdd);
+$('laCancel').addEventListener('click', closeListaAddModal);
+$('listaAddModal').addEventListener('click', e => { if (e.target === $('listaAddModal')) closeListaAddModal(); });
+$('startSave').addEventListener('click', saveStartModal);
+$('startCancel').addEventListener('click', closeStartModal);
+$('startModal').addEventListener('click', e => { if (e.target === $('startModal')) closeStartModal(); });
+$('startFmt').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _startFmt = b.dataset.f; _startFmtPaint(); } });
+$('startTot').addEventListener('keydown', e => { if (e.key === 'Enter') saveStartModal(); });
+$('finishSave').addEventListener('click', saveFinishModal);
+$('finishCancel').addEventListener('click', closeFinishModal);
+$('finishTirar').addEventListener('click', tirarLivro);
+$('finishModal').addEventListener('click', e => { if (e.target === $('finishModal')) closeFinishModal(); });
+$('finishStars').addEventListener('click', e => { const n = parseInt(e.target.dataset.n, 10); if (n && _finishCtx){ _finishCtx.rating = n; _finishPaint(); } });
 $('editCancel').addEventListener('click', closeEditor);
 $('editDelete').addEventListener('click', deleteIntent);
 $('editModal').addEventListener('click', e=>{ if (e.target === $('editModal')) closeEditor(); });

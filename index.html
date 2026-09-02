@@ -147,6 +147,57 @@
     </div>
   </div>
 
+  <!-- PARIDADE-LEITURA-2026-08-30 · lista de futuros (categorias) + concluir com nota, iguais ao widget -->
+  <div class="modal-backdrop" id="listaModal" hidden>
+    <div class="modal modal-tall">
+      <h3>Lista de leitura <span class="lista-n" id="listaN"></span></h3>
+      <div class="lista-corpo" id="listaCorpo"></div>
+      <div class="modal-actions">
+        <button id="listaAdd" class="btn ghost">+ adicionar</button>
+        <button id="listaFechar" class="btn">fechar</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="listaAddModal" hidden>
+    <div class="modal">
+      <h3>Adicionar à lista</h3>
+      <label>Título <input type="text" id="laTitulo" placeholder="ex: Drácula"></label>
+      <label>Autor (opcional) <input type="text" id="laAutor" placeholder="ex: Bram Stoker"></label>
+      <label>Categoria <select id="laCat"></select></label>
+      <div class="modal-actions">
+        <button id="laCancel" class="btn ghost">cancelar</button>
+        <button id="laSave" class="btn">✓ adicionar</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="startModal" hidden>
+    <div class="modal">
+      <h3 id="startTitulo">Começar livro</h3>
+      <div class="leit-sub" id="startSub"></div>
+      <div class="start-fmt" id="startFmt">
+        <button data-f="paper" class="on">📖 papel</button><button data-f="audio">🎧 áudio</button>
+      </div>
+      <label id="startTotLbl">Total de páginas <input type="number" id="startTot" min="1" inputmode="numeric" placeholder="ex: 320"></label>
+      <label id="startCurLbl">Onde você está (opcional) <input type="number" id="startCur" min="0" inputmode="numeric" placeholder="0"></label>
+      <div class="modal-actions">
+        <button id="startCancel" class="btn ghost">cancelar</button>
+        <button id="startSave" class="btn">✓ começar</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="finishModal" hidden>
+    <div class="modal">
+      <h3 id="finishTitulo">Concluiu o livro</h3>
+      <div class="leit-sub">que nota você dá?</div>
+      <div class="stars" id="finishStars"></div>
+      <div class="modal-actions">
+        <button id="finishTirar" class="btn ghost sm">tirar sem concluir</button>
+        <button id="finishCancel" class="btn ghost">cancelar</button>
+        <button id="finishSave" class="btn">✓ guardar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- COMER · buscar/adicionar qualquer item do banco -->
   <div class="modal-backdrop" id="comerModal" hidden>
     <div class="modal">
