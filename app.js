@@ -918,6 +918,20 @@ function renderCards(snap){
   // FINANCEIRO — ferramenta (nunca "conclui"): fixo no fim.
   if (snap.financeiro) parts.push(card('Financeiro', icon('financeiro'), fmtMes(snap.financeiro.mes), finHomeBody(snap.financeiro)));
 
+  // ANALISE-2026-09-08 · leitura de gastos (só aparece com dado; o Mac é quem calcula)
+  if (snap.gastos && snap.gastos.projecao){
+    const g = snap.gastos, pct = g.variacaoPct || 0;
+    const alto = pct >= 25, seta = pct > 0 ? '↑' : (pct < 0 ? '↓' : '·');
+    const lista = arr => (arr||[]).filter(Boolean).map(x =>
+      `<div class="gx-row"><span>${escapeHtml(x.origem||'')}</span><b>${fmtBRL(x.mes||0)}</b></div>`).join('');
+    const body = `<div class="gx-big ${alto?'alto':''}">${fmtBRL(g.gastoMes||0)}<small>até o dia ${g.dia}</small></div>
+      <div class="gx-sub">nesse ritmo fecha em <b>${fmtBRL(g.projecao)}</b> · ${seta} ${Math.abs(pct)}% ${pct>=0?'acima':'abaixo'} da média (${fmtBRL(g.mediaAnterior||0)})</div>
+      ${g.maiorGasto&&g.maiorGasto.v?`<div class="gx-sub">maior: <b>${fmtBRL(g.maiorGasto.v)}</b> · ${escapeHtml(g.maiorGasto.t||'')}</div>`:''}
+      <div class="gx-lbl">assinaturas · ${fmtBRL(g.totalAssinaturas||0)}/mês</div>${lista(g.assinaturas)}
+      <div class="gx-lbl">hábitos · ${fmtBRL(g.totalHabitos||0)}/mês</div>${lista(g.habitos)}`;
+    parts.push(card('Gastos', '💳', fmtMes(g.mes||''), body));
+  }
+
   // MENTE-2026-09-02 · notas / terapia / vícios — ferramentas de apoio, sem estado de "concluído"
   if (snap.notas || snap.terapia || snap.vicios || snap.musicas){
     const nN = Array.isArray(snap.notas) ? snap.notas.length : 0;
