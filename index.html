@@ -367,12 +367,18 @@
       </div>
     </div>
   </div>
-  <!-- PARIDADE-LEITURA-2026-09-08 · estante de terminados e destaques: existiam só no leitura.html -->
-  <div class="modal-backdrop" id="finModal" hidden>
+  <!-- PARIDADE-LEITURA-2026-09-08 · estante de terminados e destaques: existiam só no leitura.html.
+       ID-DUP-2026-09-09 · este modal nasceu chamado `finModal` e ROUBOU o id do editor de linha do
+       financeiro, que existe desde julho. Como getElementById devolve o primeiro da árvore, tocar em
+       "nova linha" ou numa linha do financeiro abria ESTA lista de livros, e salvar/apagar linha ficou
+       impossível pelo celular. Aqui "fin" é de FINalizados; o prefixo agora é `livrosFin`. -->
+  <!-- AVISO-VISIVEL-2026-09-09 · toast fora de qualquer contêiner, pra aparecer por cima dos modais -->
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div class="modal-backdrop" id="livrosFinModal" hidden>
     <div class="modal modal-tall">
-      <h3>Terminados <span class="lista-n" id="finN"></span></h3>
-      <div class="lista-corpo" id="finCorpo"></div>
-      <div class="modal-actions"><button id="finFechar" class="btn">fechar</button></div>
+      <h3>Terminados <span class="lista-n" id="livrosFinN"></span></h3>
+      <div class="lista-corpo" id="livrosFinCorpo"></div>
+      <div class="modal-actions"><button id="livrosFinFechar" class="btn">fechar</button></div>
     </div>
   </div>
   <div class="modal-backdrop" id="hlModal" hidden>

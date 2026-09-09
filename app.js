@@ -12,7 +12,11 @@ const SNAP_CACHE = 'companheiro.sync.lastSnap';
 const POLL_MS = 25000;
 let _flashTimer = null, _flashOrig = null;   // LEITURA-FIX-2026-09-08 · declarado no topo: renderFreshness (bem acima) o consulta
 let _pending = {};        // otimista: mapa key→alvo(bool) aguardando o Mac confirmar no snapshot
-let _prioTab = localStorage.getItem('companheiro.prioTab') || 'todos';   // filtro local (não sincroniza)
+/* LOCALSTORAGE-2026-09-09 · era leitura CRUA no topo do módulo. No Safari do iPhone com "bloquear
+   todos os cookies" qualquer toque em localStorage lança, e lançando AQUI o módulo não termina de
+   avaliar: nenhum addEventListener é registrado e o loop nunca começa. O app abre e não faz nada. */
+let _prioTab = 'todos';   // filtro local (não sincroniza)
+try{ _prioTab = localStorage.getItem('companheiro.prioTab') || 'todos'; }catch(e){}
 let _showHist = false;    // histórico de prioridades expandido?
 let _lastSnap = null;     // último snapshot (pra re-render local ao trocar tab/histórico)
 let _skinOpen = { am: false, pm: false };   // rotinas de skincare expandidas (mostrar passos)?
@@ -57,7 +61,7 @@ const TODAY_MODULES = [
 
 /* ---------- config ---------- */
 function getCfg(){ try{ return JSON.parse(localStorage.getItem(CFG_KEY)) || null; }catch{ return null; } }
-function setCfg(c){ localStorage.setItem(CFG_KEY, JSON.stringify(c)); _etag = null; }
+function setCfg(c){ try{ localStorage.setItem(CFG_KEY, JSON.stringify(c)); }catch(e){} _etag = null; }
 
 // ETAG-2026-07-22 · o snapshot só muda quando o Mac reescreve de verdade (o publishNow() já deduplica
 // pelo conteúdo, ignorando o ts). Sem revalidação condicional o celular rebaixava ~98 KB a cada 25 s
@@ -160,7 +164,12 @@ function uuid(){
    O evento já nasce com id e data — reenviar é seguro: o Mac deduplica por id (mobileSeen/HANDLERS).
    Erro de PERMISSÃO (401/403) não entra na fila: reenviar não resolveria, o token é que está errado. */
 const FILA_KEY = 'companheiro_fila_eventos';
-function filaLer(){ try{ return JSON.parse(localStorage.getItem(FILA_KEY) || '[]'); }catch{ return []; } }
+function filaLer(){
+  /* FILA-2026-09-09 · faltava validar o TIPO. Um JSON válido que não fosse array (`{}`, `null`) fazia
+     `f.some`/`f.push` lançar em filaEnfileirar, e a partir daí NENHUMA marcação saía do aparelho. */
+  try{ const v = JSON.parse(localStorage.getItem(FILA_KEY) || '[]'); return Array.isArray(v) ? v : []; }
+  catch{ return []; }
+}
 function filaGravar(f){
   // REVISAO-2026-08-26 · devolve se conseguiu gravar. Antes engolia a falha com catch vazio e o
   // postEvent retornava true assim mesmo — a UI dava por feito algo que não foi guardado em lugar nenhum.
@@ -211,9 +220,16 @@ async function postEvent(partial){
      ciclar o status de uma linha do financeiro, uma vez por linha; registrar whey, uma vez por bimestre.
      Correção: o envelope manda no `id` sempre; o id de domínio viaja em `rid` (e o Mac lê `rid or id`,
      então os eventos velhos que já estão na fila do celular continuam sendo aplicados certo). */
+  /* ENVELOPE-2026-09-09 · o `id` já era protegido, mas `ts`, `seq`, `source` e `v` continuavam
+     sobrescrevíveis pelo payload — a MESMA classe de bug, esperando a próxima chamada distraída
+     mandar um campo com esses nomes (o `ts` decide a ORDEM de aplicação no Mac). Agora o envelope é
+     escrito por último e só `date` é sobrescrevível de propósito, porque `daylog.edit` precisa dizer
+     qual dia está editando. */
   const envId = uuid();
-  const evt = { id: envId, ts: Math.floor(Date.now()/1000), seq: Date.now(), date: todayStr(), source: 'mobile', v: 1, ...partial };
-  if (evt.id !== envId) { evt.rid = evt.id; evt.id = envId; }
+  const dataDominio = (partial && typeof partial.date === 'string') ? partial.date : null;
+  const evt = { ...partial, id: envId, ts: Math.floor(Date.now()/1000), seq: Date.now(),
+                date: dataDominio || todayStr(), source: 'mobile', v: 1 };
+  if (partial && partial.id !== undefined && partial.id !== envId) evt.rid = partial.id;
   if (!getCfg() || !getCfg().pat) throw new Error('conecte o token primeiro (engrenagem)');
   /* AUDIT-2026-09-02 · PERSISTE ANTES de enviar. O iOS mata o JS sem aviso (trocar de app, travar a
      tela) — com o PUT em voo e nada na fila, a marcação que a UI já mostrou evaporava. Agora o evento
@@ -227,11 +243,17 @@ async function postEvent(partial){
     filaDrenar();            // aproveita que a rede está boa pra escoar o que ficou pra trás
     return r;
   } catch (err) {
-    if (err && (err.semRetry || err.permanente)) {        // reenviar não resolve → não deixa apodrecer na fila
+    /* PERMISSAO-2026-09-09 · antes `semRetry` (401/403) JOGAVA FORA o evento recém-criado, enquanto o
+       dreno (que só dá break) preservava os antigos. Token vencido = a marcação de agora se perdia e as
+       de ontem sobreviviam. Token errado é conserto de um campo, não motivo pra perder dado: fica na
+       fila e sai assim que ele arrumar. Só o 4xx PERMANENTE (payload inválido, repo errado) é jogado
+       fora, porque reenviar de fato nunca vai funcionar. */
+    if (err && err.permanente) {
       filaGravar(filaLer().filter(e => e.id !== evt.id));
       renderFilaAviso();
       throw err;
     }
+    if (err && err.semRetry) { renderFilaAviso(); throw err; }
     // Fica na fila: NÃO lança. Se lançasse, cada handler desfaria a marcação otimista e o usuário veria o
     // item desmarcar sozinho — mesmo com o evento salvo. A UI segue marcada e a faixa "N aguardando
     // conexão" conta a verdade; quando a rede voltar, o dreno entrega e o snapshot confirma.
@@ -307,9 +329,11 @@ function renderHero(c){
   $('crLevel').textContent = `${c.levelName || ''} · nível ${c.level ?? '—'}`;
   const pct = Math.round((c.levelProgress || 0) * 100);
   $('xpfill').style.width = pct + '%';
-  $('xpnum').textContent = c.xpToNextLevel > 0
-    ? `${c.xp} / ${c.xp + c.xpToNextLevel} xp`
-    : `${c.xp} xp · máximo`;
+  /* GUARDA-2026-09-09 · a linha de cima já usa `c.level ?? '—'`; aqui faltava, e um snapshot sem `xp`
+     imprimia "undefined xp · máximo" no maior texto da tela. */
+  const _xp = Number.isFinite(c.xp) ? c.xp : null;
+  $('xpnum').textContent = _xp == null ? '—'
+    : (c.xpToNextLevel > 0 ? `${_xp} / ${_xp + c.xpToNextLevel} xp` : `${_xp} xp · máximo`);
   $('crCap').textContent = c.cap || '';
   const chips = [];
   if (c.streak >= 1) chips.push(`<span class="chip hot">${icon('flame')} ${c.streak} ${c.streak===1?'dia':'dias'}</span>`);
@@ -466,7 +490,7 @@ function comerBody(cm){
   if (lg.length){
     h += `<div class="cm-lbl">hoje</div><div class="cm-log">`;
     // COMER-UNDO-IDX-2026-08-18 · leva o ÍNDICE (x.i): o horário é ambíguo (refeição inteira no mesmo minuto)
-    h += lg.map((x, k) => `<div class="cm-lrow"><span>${escapeHtml(x.nome)}</span><small>${escapeHtml(x.t||'')}</small><i>+${x.prot}g</i><button class="cm-lx" data-ev="comer.undo" data-t="${escapeHtml(x.t||'')}" data-idx="${x.i || (k+1)}">×</button></div>`).join('');
+    h += lg.map((x, k) => `<div class="cm-lrow"><span>${escapeHtml(x.nome)}</span><small>${escapeHtml(x.t||'')}</small><i>+${x.prot}g</i><button class="cm-lx" data-ev="comer.undo" data-t="${escapeHtml(x.t||'')}" data-idx="${x.i || (k+1)}" data-fid="${escapeHtml(x.id||'')}" data-prot="${x.prot||0}">×</button></div>`).join('');
     h += `</div>`;
   }
   return h;
@@ -584,7 +608,10 @@ const FIN_STATUS = ['Previsto', 'Pago', 'Atrasado', 'Cancelado'];
 const _MES_ABBR = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 let _finOpen = {};
 try{ _finOpen = JSON.parse(localStorage.getItem('companheiro.finOpen')) || {}; }catch{ _finOpen = {}; }
-function saveFinOpen(){ localStorage.setItem('companheiro.finOpen', JSON.stringify(_finOpen)); }
+/* LOCALSTORAGE-2026-09-09 · sem try, um setItem que lança (cota, cookies bloqueados) subia pelo
+   handler de clique e o `postEvent` da linha seguinte NUNCA rodava: a linha aparecia na tela pelo
+   otimista e não existia em lugar nenhum. Guardar preferência de UI não pode derrubar o envio. */
+function saveFinOpen(){ try{ localStorage.setItem('companheiro.finOpen', JSON.stringify(_finOpen)); }catch(e){} }
 let _finMonth = null;   // mês em foco na tela cheia (null = mês corrente do snapshot)
 function fmtBRL(v){ return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
 // PLUGGY-FRESH · "há X" a partir de um ISO (string) ou unix ts. Frescor REAL do dado bancário.
@@ -605,6 +632,10 @@ function rowsOfMonth(rows, mes){ return (rows||[]).filter(r => r.mes === mes); }
 function parseValBR(s){
   s = String(s).trim().replace(/[^\d.,-]/g, '');
   if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+  /* VALOR-2026-09-09 · digitar "1.500" (jeito natural em pt-BR, sem os centavos) caía direto no
+     parseFloat e virava 1.5 — o Mac gravava R$ 1,50 no lugar de R$ 1.500,00, sem nenhum aviso.
+     Sem vírgula, ponto seguido de exatamente 3 dígitos é separador de milhar. */
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
   const n = parseFloat(s); return isNaN(n) ? 0 : n;
 }
 // resumo de um conjunto de linhas — MESMA lógica do Mac (summarize). Retorna {tenho,receber,previsto,investir,sobra,livres}
@@ -826,13 +857,17 @@ function renderCards(snap){
           <small>${w.bottles||0} garrafa(s) de ${w.bottleMl||0} ml</small></div>
       </div>
       <button class="mark-btn" data-ev="agua.bottle">+1 garrafa (${w.bottleMl||700} ml)</button>${undo}`;
-    daily.push({ key:'agua', title:'Água', ic:icon('agua'), badge:`meta ${(w.goalMl/1000).toFixed(1)} L`, body, done, mini:`${(w.ml/1000).toFixed(1)} L` });
+    /* GUARDA-2026-09-09 · sem `goalMl` o badge imprimia "meta NaN L". E vírgula decimal: o app inteiro
+       é em português e só a água e a leitura usavam ponto. */
+    daily.push({ key:'agua', title:'Água', ic:icon('agua'),
+      badge: w.goalMl ? `meta ${((w.goalMl||0)/1000).toFixed(1).replace('.', ',')} L` : 'meta —',
+      body, done, mini:`${((w.ml||0)/1000).toFixed(1).replace('.', ',')} L` });
   }
 
   // PRIORIDADES — done só quando não sobra pendente. Toggle já desmarca por item.
   if (snap.prioridades){
     const pr = snap.prioridades, done = (pr.total > 0 && pr.pending === 0);
-    daily.push({ key:'prio', title:'Prioridades', ic:icon('prioridades'), badge:`${pr.pending}/${pr.total}`, body:prioBody(pr), done, mini:'tudo feito' });
+    daily.push({ key:'prio', title:'Prioridades', ic:icon('prioridades'), badge:`${pr.pending ?? 0}/${pr.total ?? 0}`   /* GUARDA-2026-09-09 · imprimia "undefined/undefined" */, body:prioBody(pr), done, mini:'tudo feito' });
   }
 
   // SKINCARE — done quando manhã+noite completas. Toggle já desfaz (rotina e passo).
@@ -1106,17 +1141,26 @@ function render(snap){
   try{ renderFilaAviso(); }catch(e){}   // FILA-OFFLINE-2026-08-24
   _lastSnap = snap;
   document.body.classList.remove('loading', 'needcfg');
-  renderFreshness(snap);
-  renderHero(snap.creature || {});
-  renderToday(snap);
-  renderCards(snap);
+  /* RENDER-2026-09-09 · cada bloco no seu try. Sem isso, uma exceção em renderCards subia até o
+     catch do refresh(), que a tratava como falha de REDE: mostrava "sem conexão — mostrando último",
+     repintava o mesmo snapshot (que quebrava de novo) e, como `_lastRendered` só é gravado depois de
+     um render inteiro bem-sucedido, isso repetia a cada 25s pra sempre. Um módulo com defeito
+     congelava a tela toda e ainda mentia sobre a causa. */
+  try{ renderFreshness(snap); }catch(e){}
+  try{ renderHero(snap.creature || {}); }catch(e){}
+  try{ renderToday(snap); }catch(e){}
+  try{ renderCards(snap); }catch(e){}
   try{ renderAvisosDoMac(snap); }catch(e){}    // CANAL-DE-VOLTA-2026-09-08
-  if (!$('finFull').hidden) renderFinFull();   // mantém a tela cheia do financeiro em sincronia
+  try{ if (!$('finFull').hidden) renderFinFull(); }catch(e){}   // mantém a tela cheia em sincronia
   if (!$('extratoFull').hidden) renderExtrato();
   /* AUDIT2-2026-09-02 (B6) · modais abertos ficavam com DOM defasado até a próxima interação */
   try{ if (!$('musModal').hidden) renderMusModal(); }catch(e){}
   try{ if (!$('notasModal').hidden) openNotasModal(); }catch(e){}
   try{ if (!$('listaModal').hidden) openListaModal(); }catch(e){}
+  /* ROLLBACK-2026-09-09 · pílula e destaques ficavam de fora: a estrela seguia virada e o destaque
+     seguia na lista mesmo quando o envio falhava e o refreshForcado desfazia tudo o resto. */
+  try{ if (!$('pilulaModal').hidden && _pilTab !== 'hoje') renderPilLista(); }catch(e){}
+  try{ if (!$('hlModal').hidden) renderHl(); }catch(e){}
 }
 
 /* ---------- loop ---------- */
@@ -1167,8 +1211,25 @@ function showError(msg){ $('cards').innerHTML = `<div class="state-msg err">${es
 /* FLASH-2026-08-26 · dois erros dentro da mesma janela de 3s se aninhavam: o segundo capturava a MENSAGEM
    DE ERRO do primeiro como "texto original" e restaurava ela — a mensagem de erro ficava grudada no lugar
    do frescor pra sempre. Agora só a primeira chamada guarda o original e o timer é único. */
+let _toastTimer = null;
 function flashError(msg, ms){
+  /* AVISO-VISIVEL-2026-09-09 · a mensagem ia só pro #freshness, que vive no header (z-index 5) e some
+     da tela depois da primeira rolagem — e TODO modal é z-index 100. Ou seja: em formulário, a
+     validação ficava ATRÁS do modal; fora dele, fora da tela. O usuário apertava salvar e não via
+     nada acontecer. Agora vai pro toast, que fica por cima de tudo, e o header continua recebendo a
+     mesma frase pra quem estiver olhando pra ele. Texto longo é cortado: um título de 5000 caracteres
+     chegava a ser despejado inteiro aqui. */
+  const texto = String(msg == null ? '' : msg);
+  const curto = texto.length > 160 ? texto.slice(0, 157) + '…' : texto;
+  const t = $('toast');
+  if (t){
+    t.textContent = curto;
+    t.classList.add('on');
+    if (_toastTimer) clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => { t.classList.remove('on'); _toastTimer = null; }, ms || 3200);
+  }
   const f = $('freshness'); if (!f) return;
+  msg = curto;
   /* AUDIT-2026-09-02 · guarda/restaura innerHTML: o aviso de defasagem ("⚠ sem sincronizar") tem markup
      e voltava como texto puro, perdendo o estilo até o próximo poll. */
   if (_flashTimer) clearTimeout(_flashTimer); else _flashOrig = f.innerHTML;
@@ -1201,9 +1262,12 @@ function renderAvisosDoMac(snap){
   const vistos = _avisosVistos(), setV = new Set(vistos);
   const novos = lista.filter(a => a && a.id && a.motivo && !setV.has(a.id));
   if (!novos.length) return;
-  novos.forEach(a => setV.add(a.id));
-  /* só os 3 mais recentes viram toast — se ficou uma semana offline não vale enfileirar 20 */
-  novos.slice(-3).forEach(a => _avisoFila.push(a));
+  /* AVISOS-2026-09-09 · antes marcava TODOS como vistos e só mostrava os 3 últimos: do 4º em diante o
+     veredicto do Mac era dado como lido sem nunca ter aparecido na tela. Agora só entra no conjunto
+     de vistos o que de fato foi enfileirado pra mostrar; o resto volta no próximo poll. */
+  const paraMostrar = novos.slice(-3);
+  paraMostrar.forEach(a => setV.add(a.id));
+  paraMostrar.forEach(a => _avisoFila.push(a));
   try{ localStorage.setItem(AVISOS_VISTOS_KEY, JSON.stringify([...setV].slice(-60))); }catch(e){}
   _avisoDrenar();
 }
@@ -1901,8 +1965,8 @@ function tirarDaLista(tId, title){
 function openFinModal(){
   const lst = (_lastSnap && _lastSnap.leituraLista) || null;
   const fins = (lst && Array.isArray(lst.finished)) ? lst.finished.filter(Boolean) : [];
-  $('finN').textContent = `· ${fins.length}`;
-  $('finCorpo').innerHTML = fins.slice().reverse().map(b => {
+  $('livrosFinN').textContent = `· ${fins.length}`;
+  $('livrosFinCorpo').innerHTML = fins.slice().reverse().map(b => {
     const est = b.rating ? '★'.repeat(b.rating) + '☆'.repeat(5 - b.rating) : '';
     const nHl = Array.isArray(b.hl) ? b.hl.length : 0;
     const quando = b.endDate ? b.endDate.split('-').reverse().slice(0, 2).join('/') : '';
@@ -1912,9 +1976,9 @@ function openFinModal(){
       <button class="fin-hl" data-book="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}" ${nHl ? '' : 'disabled'}>✎ ${nHl}</button>
     </div>`;
   }).join('') || '<div class="leit-hint">nenhum livro concluído ainda</div>';
-  $('finModal').hidden = false;
+  $('livrosFinModal').hidden = false;
 }
-function closeFinModal(){ $('finModal').hidden = true; }
+function closeFinModal(){ $('livrosFinModal').hidden = true; }
 
 /* PARIDADE-LEITURA-2026-09-08 · destaques. Era a parte da leitura que MAIS pede o celular (a frase que
    te pega, no ônibus, longe do Mac) e era a única que só existia lá. O HALT do módulo de vícios come
@@ -2120,6 +2184,11 @@ const onCardClick = async (e) => {
   const btn = e.target.closest('[data-ev],[data-ptab]');
   if (!btn || btn.disabled) return;
   const ev = btn.dataset.ev, label = btn.textContent;
+  /* BOTAO-PRESO-2026-09-09 · quando não há rede o postEvent ENFILEIRA e resolve com sucesso, então o
+     catch que devolveria o rótulo nunca rodava e o botão ficava "enviando…" e desabilitado pra
+     sempre (medido: 20s e continuava). Este seguro devolve o rótulo mesmo no caminho feliz. */
+  const _devolveRotulo = () => { try{ if (btn.textContent !== label){ btn.textContent = label; } btn.disabled = false; }catch(e){} };
+  setTimeout(_devolveRotulo, 4000);
 
   // LOCAL (sem rede): tab de prioridades / mostrar-ocultar histórico / abrir editor
   if (btn.dataset.ptab){ _prioTab = btn.dataset.ptab; localStorage.setItem('companheiro.prioTab', _prioTab); if (_lastSnap) render(_lastSnap); return; }
@@ -2195,7 +2264,11 @@ const onCardClick = async (e) => {
     optimisticComer(entry ? -(entry.prot||0) : 0);
     if (cm) cm.log = (cm.log||[]).filter(x => x !== entry);
     render(_lastSnap);
-    try{ await postEvent({ type:'comer.undo', t, idx }); schedulePrioRefresh(); }
+    /* COMER-UNDO-2026-09-09 · manda também o id do alimento e a proteína. O Mac casava só por índice,
+       e como a refeição inteira entra no mesmo minuto, um undo reentregue apagava outro item. Com a
+       assinatura completa (horário + id + proteína) ele só remove exatamente o que foi pedido. */
+    try{ await postEvent({ type:'comer.undo', t, idx, id: btn.dataset.fid || undefined,
+                           prot: Number(btn.dataset.prot) || undefined }); schedulePrioRefresh(); }
     catch(err){ flashError(err.message || 'falha ao enviar'); refreshForcado(); }
     return;
   }
@@ -2456,9 +2529,9 @@ $('vicLapsoHalt').addEventListener('click', e => {
   b.classList.toggle('on', !!_lapsoHalt[b.dataset.h]);
 });
 $('descansoBtn').addEventListener('click', toggleDescanso);   // PARIDADE-DESCANSO-2026-09-08
-$('finFechar').addEventListener('click', closeFinModal);
-$('finModal').addEventListener('click', e => { if (e.target === $('finModal')) closeFinModal(); });
-$('finCorpo').addEventListener('click', e => {
+$('livrosFinFechar').addEventListener('click', closeFinModal);
+$('livrosFinModal').addEventListener('click', e => { if (e.target === $('livrosFinModal')) closeFinModal(); });
+$('livrosFinCorpo').addEventListener('click', e => {
   const b = e.target.closest('.fin-hl');
   if (b && !b.disabled) openHlModal(b.dataset.book, b.dataset.title || 'livro');
 });

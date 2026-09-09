@@ -8,7 +8,11 @@
   --ok:#93b184; --off:#3a3a41;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{height:100%}
+/* AVISO-VISIVEL-2026-09-09 · `height:100%` no body limitava o bloco contêiner a uma tela, então o
+   header `position:sticky` saía de vista depois de ~812px — e com ele o #freshness, que é onde toda
+   mensagem de erro aparece. Em 85% da rolagem do app o aviso era escrito fora da tela. */
+html{height:100%}
+body{min-height:100%}
 body{
   font-family:'Hanken Grotesk',-apple-system,system-ui,'Segoe UI',sans-serif;
   color:var(--ink); background:var(--bg);
@@ -210,7 +214,11 @@ body.needcfg .onboard{display:block}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);
   display:grid;place-items:center;z-index:100;padding:20px}   /* acima da tela cheia do financeiro (z-index:50) */
 .modal-backdrop[hidden]{display:none}
-.modal{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:20px;width:100%;max-width:400px}
+/* ALCANCE-2026-09-09 · 14 modais usavam `.modal` puro, sem limite de altura: com o teclado aberto
+   (ou num celular baixo) o botão de salvar ficava abaixo da tela e não havia rolagem nem no modal nem
+   no fundo. Só dava pra sair tocando fora, perdendo o que foi digitado. */
+.modal{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:20px;width:100%;max-width:400px;
+  max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .modal h3{font-size:17px;margin-bottom:4px}
 .modal-sub{font-size:12px;color:var(--muted);line-height:1.4;margin-bottom:14px}
 .modal-sub code{background:var(--paper-2);padding:1px 5px;border-radius:5px;font-size:11px}
@@ -581,3 +589,15 @@ button.pil-item span,button.dh-item span{font-size:12px;color:var(--muted)}
 .pil-diadata{font-size:11.5px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;margin:8px 0 2px}
 #pilBusca{width:100%;box-sizing:border-box;margin-bottom:6px}
 .fin-banks{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px}
+
+/* AVISO-VISIVEL-2026-09-09 · toast acima de tudo. O flashError escrevia no #freshness (z-index 5) e
+   TODO modal é z-index 100: a validação existia no DOM e ficava atrás do modal. O usuário apertava
+   salvar e não acontecia nada visível. É a raiz do "clico e nada acontece" em 12 formulários. */
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:28px;z-index:2000;max-width:min(92vw,420px);
+  background:var(--paper-2);color:var(--ink);border:1px solid var(--line);border-radius:12px;
+  padding:11px 15px;font-size:13.5px;line-height:1.4;box-shadow:0 10px 28px rgba(0,0,0,.55);
+  opacity:0;pointer-events:none;transition:opacity .18s ease}
+#toast.on{opacity:1}
+/* TOQUE-2026-09-09 · botão desabilitado era visualmente idêntico ao ativo (fundo cheio, cursor de
+   ponteiro): "encerrar dia" sem humor escolhido parecia um botão que simplesmente não funciona. */
+.btn:disabled,button:disabled{opacity:.45;cursor:default}
