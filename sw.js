@@ -1,7 +1,7 @@
 // Service worker — cacheia a CASCA do app (offline). NÃO cacheia os DADOS
 // (snapshot.json / GitHub API) — esses são sempre rede; o app.js guarda o último
 // snapshot em localStorage pra exibir offline.
-const CACHE = 'companheiro-shell-v39';
+const CACHE = 'companheiro-shell-v40';
 const SHELL = [
   './', './index.html', './style.css', './app.js', './creature-art.js',
   './_shared/regras.js', './skincare-catalog.js',   // CORE-2026-08-24 · faltavam no cache offline
@@ -55,6 +55,18 @@ self.addEventListener('fetch', e => {
     /* AUDIT2-2026-09-02 (B4) · chave sem querystring: o "Abrir no navegador" gera ?r=<timestamp> único
        por toque e cada um virava entrada NOVA no cache pra sempre. A casca não varia por query. */
     const chave = (url.origin === self.location.origin) ? new Request(url.origin + url.pathname) : e.request;
+    /* LEITURA-FIX-2026-09-08 · com a chave normalizada (AUDIT2/B4), o "?r=<timestamp>" do botão
+       "Abrir no navegador" passou a ACERTAR o cache — e o atalho de forçar atualização virou letra
+       morta (precisava de duas aberturas). Agora, quando a URL traz query (que só existe quando é
+       cache-buster deliberado), vai na REDE primeiro e cai no cache só se a rede falhar. Sem query,
+       segue stale-while-revalidate normal, e o cache não cresce porque a chave continua sem query. */
+    if (url.search){
+      try {
+        const fresco = await fetch(e.request, { cache: 'reload' });
+        if (fresco && fresco.ok) { cache.put(chave, fresco.clone()); return fresco; }
+      } catch (err) {}
+      return (await cache.match(chave)) || fetch(e.request);
+    }
     const cached = await cache.match(chave);
     const network = fetch(e.request).then(r => { if (r && r.ok) cache.put(chave, r.clone()); return r; }).catch(() => null);
     return cached || (await network) || fetch(e.request);
