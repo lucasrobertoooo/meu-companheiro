@@ -304,7 +304,35 @@ function renderHero(c){
   $('chips').innerHTML = chips.join('');
 }
 
+/* PARIDADE-DESCANSO-2026-09-08 · "silenciar hoje" e "modo descanso" existiam só no Mac. O snapshot já
+   dizia que estavam ligados (`snap.descanso`), mas o app não mostrava nem deixava mexer — então um dia
+   de folga significava sair do celular pra ir ao Mac desligar as cobranças, ou aguentar. */
+function renderDescanso(snap){
+  const d = snap.descanso || {};
+  const row = $('descansoRow'); if (!row) return;
+  const silenciado = !!d.ativo && d.motivo === 'silenciado hoje';
+  const descanso = !!d.ativo && d.motivo === 'modo descanso';
+  row.hidden = false;
+  $('descansoTxt').textContent = d.ativo ? `🔕 ${d.motivo}` : '🔔 lembretes ligados';
+  const b = $('descansoBtn');
+  /* fim de semana automático não tem botão de desligar aqui: é regra do Mac, não um interruptor */
+  if (d.ativo && !silenciado && !descanso){ b.hidden = true; return; }
+  b.hidden = false;
+  b.textContent = silenciado ? 'reativar' : (descanso ? 'sair do descanso' : 'silenciar hoje');
+  b.dataset.alvo = descanso ? 'rest' : 'snooze';
+  b.dataset.ligado = (silenciado || descanso) ? '0' : '1';
+}
+function toggleDescanso(){
+  const b = $('descansoBtn');
+  const alvo = b.dataset.alvo || 'snooze', ligado = b.dataset.ligado === '1';
+  $('descansoTxt').textContent = ligado ? '🔕 silenciado hoje' : '🔔 lembretes ligados';
+  b.hidden = true;
+  postEvent({ type:'descanso.set', alvo, ligado }).then(schedulePrioRefresh)
+    .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+}
+
 function renderToday(snap){
+  try{ renderDescanso(snap); }catch(e){}
   const done = snap.doneToday || {};
   const pel = snap.pelvico;                 // {done, total} — pélvico é 3x/dia
   $('todayGrid').innerHTML = TODAY_MODULES.map(m => {
@@ -1375,7 +1403,8 @@ function togglePinNota(){
 let _terTab = 'reg';
 function openTerapiaModal(){
   _terTab = 'reg'; _terPaint();
-  ['trSit','trEmo','trTho','trResp','tg1','tg2','tg3','tgPessoa'].forEach(id => { $(id).value = ''; });
+  ['trSit','trEmo','trTho','trResp','trDist','tg1','tg2','tg3','tgw1','tgw2','tgw3','tgPessoa','tgPessoaWhy']
+    .forEach(id => { $(id).value = ''; });
   $('trScore').value = 5; $('trScoreV').textContent = '5';
   $('terapiaModal').hidden = false;
 }
@@ -1390,19 +1419,50 @@ function saveTerapia(){
     const sit = $('trSit').value.trim(), tho = $('trTho').value.trim();
     if (!sit && !tho){ flashError('conta pelo menos a situação ou o pensamento'); return; }
     evt = { type:'terapia.registro', situation:sit, emotion:$('trEmo').value.trim(),
-            emotionScore:+$('trScore').value, thought:tho, distortion:'', response:$('trResp').value.trim() };
+            emotionScore:+$('trScore').value, thought:tho,
+            distortion:$('trDist').value,          // PARIDADE-TERAPIA-2026-09-08 · era '' fixo
+            response:$('trResp').value.trim() };
   } else {
-    const items = ['tg1','tg2','tg3'].map(id => $(id).value.trim()).filter(Boolean).map(t => ({ thing:t, why:'' }));
+    /* PARIDADE-TERAPIA-2026-09-08 · o porquê de cada item viaja junto (era '' fixo). Item só com o
+       porquê preenchido também conta, igual ao filtro do terapia.html. */
+    const items = [1,2,3].map(i => ({ thing:$('tg'+i).value.trim(), why:$('tgw'+i).value.trim() }))
+                         .filter(x => x.thing || x.why);
     if (!items.length){ flashError('pelo menos uma coisa boa'); return; }
-    evt = { type:'terapia.gratidao', items, person:$('tgPessoa').value.trim(), personWhy:'' };
+    evt = { type:'terapia.gratidao', items, person:$('tgPessoa').value.trim(), personWhy:$('tgPessoaWhy').value.trim() };
   }
   $('terapiaModal').hidden = true;
   postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 
 let _vicTab = 'halt', _halt = {};
+let _lapsoCtx = null, _lapsoHalt = {};    // PARIDADE-VICIOS-2026-09-08
+function viciosContadores(){
+  return (_lastSnap && _lastSnap.vicios && Array.isArray(_lastSnap.vicios.contadores))
+    ? _lastSnap.vicios.contadores.filter(Boolean) : [];
+}
+function renderVicContadores(){
+  const cts = viciosContadores();
+  $('vicContLista').innerHTML = cts.map(c => `<div class="fin-item">
+      <div class="fin-tit"><b>${escapeHtml(c.nome)}</b>
+        <span>${c.dias != null ? c.dias + ' dia' + (c.dias === 1 ? '' : 's') : 'sem data'}${c.best ? ' · recorde ' + c.best + 'd' : ''}${c.lapsos ? ' · ' + c.lapsos + ' lapso' + (c.lapsos === 1 ? '' : 's') : ''}</span>
+        ${c.identidade ? `<span>${escapeHtml(c.identidade)}</span>` : ''}</div>
+      <button class="fin-hl" data-lapso="${escapeHtml(c.id)}" data-nome="${escapeHtml(c.nome)}">lapso</button>
+    </div>`).join('')
+    || '<div class="leit-hint">nenhum contador ainda — criar um é no Mac, na janela de vícios</div>';
+}
+function abrirLapso(id, nome){
+  _lapsoCtx = { id, nome }; _lapsoHalt = {};
+  $('vicLapsoQual').textContent = `Registrando um lapso em “${nome}”. O contador reinicia hoje e o recorde fica guardado.`;
+  $('vlPlace').value = ''; $('vlContext').value = ''; $('vlTrigger').value = ''; $('vlNote').value = '';
+  document.querySelectorAll('#vicLapsoHalt button').forEach(b => b.classList.remove('on'));
+  $('vicLapsoForm').hidden = false; $('vicContLista').hidden = true;
+}
+
 function openViciosModal(){
-  _vicTab = 'halt'; _halt = {}; _vicPaint();
+  _vicTab = 'halt'; _halt = {}; _lapsoCtx = null;
+  $('vicLapsoForm').hidden = true; $('vicContLista').hidden = false;
+  renderVicContadores();
+  _vicPaint();
   $('vsAntes').value = 5; $('vsAntesV').textContent = '5';
   $('vsDepois').value = 2; $('vsDepoisV').textContent = '2';
   $('vsMin').value = ''; $('vsGatilho').value = '';
@@ -1412,10 +1472,25 @@ function _vicPaint(){
   document.querySelectorAll('#vicTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === _vicTab));
   $('vicHalt').hidden = _vicTab !== 'halt';
   $('vicSurf').hidden = _vicTab !== 'surf';
+  $('vicCont').hidden = _vicTab !== 'cont';
+  $('vicSave').textContent = (_vicTab === 'cont' && _lapsoCtx) ? '✓ registrar lapso'
+                           : (_vicTab === 'cont' ? 'fechar' : '✓ registrar');
   document.querySelectorAll('#haltChips button').forEach(b => b.classList.toggle('on', !!_halt[b.dataset.h]));
 }
 function saveVicios(){
   let evt;
+  if (_vicTab === 'cont'){
+    if (!_lapsoCtx){ $('viciosModal').hidden = true; return; }
+    evt = { type:'vicios.lapso', counterId:_lapsoCtx.id, time:nowHHMM(),
+            hungry:!!_lapsoHalt.hungry, angry:!!_lapsoHalt.angry,
+            lonely:!!_lapsoHalt.lonely, tired:!!_lapsoHalt.tired,
+            place:$('vlPlace').value.trim(), context:$('vlContext').value,
+            trigger:$('vlTrigger').value.trim(), note:$('vlNote').value.trim() };
+    $('viciosModal').hidden = true;
+    flashError(`lapso registrado em “${_lapsoCtx.nome}” — o contador reinicia hoje`);
+    postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+    return;
+  }
   if (_vicTab === 'halt'){
     if (!Object.values(_halt).some(Boolean)){ flashError('marca pelo menos um'); return; }
     evt = { type:'vicios.halt', hungry:!!_halt.hungry, angry:!!_halt.angry, lonely:!!_halt.lonely, tired:!!_halt.tired };
@@ -2087,7 +2162,13 @@ $('trScore').addEventListener('input', () => { $('trScoreV').textContent = $('tr
 $('terSave').addEventListener('click', saveTerapia);
 $('terCancel').addEventListener('click', () => { $('terapiaModal').hidden = true; });
 $('terapiaModal').addEventListener('click', e => { if (e.target === $('terapiaModal')) $('terapiaModal').hidden = true; });
-$('vicTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _vicTab = b.dataset.t; _vicPaint(); } });
+$('vicTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return;
+  _vicTab = b.dataset.t;
+  /* PARIDADE-VICIOS-2026-09-08 · trocar de aba abandona um lapso pela metade: volta pra lista, senão o
+     botão continua dizendo "registrar lapso" numa aba que não tem formulário nenhum. */
+  if (_vicTab !== 'cont'){ _lapsoCtx = null; $('vicLapsoForm').hidden = true; $('vicContLista').hidden = false; }
+  else renderVicContadores();
+  _vicPaint(); });
 $('haltChips').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _halt[b.dataset.h] = !_halt[b.dataset.h]; _vicPaint(); } });
 $('vsAntes').addEventListener('input', () => { $('vsAntesV').textContent = $('vsAntes').value; });
 $('vsDepois').addEventListener('input', () => { $('vsDepoisV').textContent = $('vsDepois').value; });
@@ -2139,6 +2220,16 @@ $('listaCorpo').addEventListener('click', e => {
   if (c && !c.disabled) openStartModal({ tId:c.dataset.tid, title:c.dataset.title, author:c.dataset.author, format:c.dataset.fmt || '' });
 });
 /* PARIDADE-LEITURA-2026-09-08 · terminados e destaques */
+$('vicContLista').addEventListener('click', e => {           // PARIDADE-VICIOS-2026-09-08
+  const b = e.target.closest('[data-lapso]');
+  if (b){ abrirLapso(b.dataset.lapso, b.dataset.nome || 'contador'); _vicPaint(); }
+});
+$('vicLapsoHalt').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  _lapsoHalt[b.dataset.h] = !_lapsoHalt[b.dataset.h];
+  b.classList.toggle('on', !!_lapsoHalt[b.dataset.h]);
+});
+$('descansoBtn').addEventListener('click', toggleDescanso);   // PARIDADE-DESCANSO-2026-09-08
 $('finFechar').addEventListener('click', closeFinModal);
 $('finModal').addEventListener('click', e => { if (e.target === $('finModal')) closeFinModal(); });
 $('finCorpo').addEventListener('click', e => {

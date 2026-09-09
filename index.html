@@ -44,6 +44,12 @@
     <section class="today" id="today">
       <h2 class="sec-title">Hoje</h2>
       <div class="today-grid" id="todayGrid"></div>
+      <!-- PARIDADE-DESCANSO-2026-09-08 · o estado de descanso já viajava no snapshot e o app não lia
+           nem conseguia ligar. É o que explica "por que nada está me cobrando hoje". -->
+      <div class="descanso-row" id="descansoRow" hidden>
+        <span id="descansoTxt"></span>
+        <button id="descansoBtn" class="mini-btn"></button>
+      </div>
     </section>
 
     <!-- CARDS dos módulos -->
@@ -200,13 +206,35 @@
           <label>Emoção <input type="text" id="trEmo" placeholder="ex: ansiedade, raiva, vergonha"></label>
           <label>Intensidade <span id="trScoreV" class="lista-n">5</span> <input type="range" id="trScore" min="0" max="10" value="5"></label>
           <label>Pensamento <textarea id="trTho" rows="2" placeholder="o que passou pela cabeça"></textarea></label>
+          <!-- PARIDADE-TERAPIA-2026-09-08 · o campo existe no terapia.html e o app mandava '' fixo:
+               o registro chegava no Mac sempre sem distorção, e é justamente o passo que dá o nome
+               ao padrão. Mesmas 10 opções do widget, na mesma ordem. -->
+          <label>Distorção (opcional) <select id="trDist">
+            <option value="">— escolher —</option>
+            <option>Catastrofização (pior cenário)</option>
+            <option>Leitura de mente (assumir o que os outros pensam)</option>
+            <option>Generalização ("sempre" / "nunca")</option>
+            <option>Etiquetagem ("sou idiota", "sou fraco")</option>
+            <option>Raciocínio emocional ("sinto, logo é")</option>
+            <option>Pensamento "deveria"</option>
+            <option>Filtro mental (só vê o ruim)</option>
+            <option>Polarização (tudo ou nada)</option>
+            <option>Personalização (culpa indevida)</option>
+            <option>Magnificação / minimização</option>
+          </select></label>
           <label>Resposta mais gentil (opcional) <textarea id="trResp" rows="2" placeholder="o que você diria pra um amigo nessa situação"></textarea></label>
         </div>
         <div id="terGrat" hidden>
+          <!-- PARIDADE-TERAPIA-2026-09-08 · o "por quê" de cada item e o da pessoa existem no Mac e
+               o app mandava '' fixo. É a parte que faz a gratidão render alguma coisa. -->
           <label>Grato por... <input type="text" id="tg1" placeholder="1ª coisa"></label>
+          <label>&nbsp;<input type="text" id="tgw1" placeholder="por quê (opcional)"></label>
           <label>&nbsp;<input type="text" id="tg2" placeholder="2ª (opcional)"></label>
+          <label>&nbsp;<input type="text" id="tgw2" placeholder="por quê (opcional)"></label>
           <label>&nbsp;<input type="text" id="tg3" placeholder="3ª (opcional)"></label>
+          <label>&nbsp;<input type="text" id="tgw3" placeholder="por quê (opcional)"></label>
           <label>Uma pessoa (opcional) <input type="text" id="tgPessoa" placeholder="quem fez diferença hoje"></label>
+          <label>&nbsp;<input type="text" id="tgPessoaWhy" placeholder="o que ela fez"></label>
         </div>
       </div>
       <div class="modal-actions">
@@ -219,7 +247,7 @@
     <div class="modal modal-tall">
       <h3>Vícios</h3>
       <div class="start-fmt" id="vicTabs">
-        <button data-t="halt" class="on">check HALT</button><button data-t="surf">surfei a fissura</button>
+        <button data-t="halt" class="on">check HALT</button><button data-t="surf">surfei a fissura</button><button data-t="cont">contadores</button>
       </div>
       <div class="lista-corpo">
         <div id="vicHalt">
@@ -234,6 +262,30 @@
           <label>Depois de surfar <span id="vsDepoisV" class="lista-n">2</span> <input type="range" id="vsDepois" min="0" max="10" value="2"></label>
           <label>Quantos minutos durou <input type="number" id="vsMin" min="0" inputmode="numeric" placeholder="ex: 5"></label>
           <label>Gatilho (opcional) <input type="text" id="vsGatilho" placeholder="o que acendeu"></label>
+        </div>
+        <!-- PARIDADE-VICIOS-2026-09-08 · contador de sobriedade. Criar e editar continua no Mac (é
+             decisão fria, de mesa); o que precisa estar aqui é VER quantos dias e registrar a recaída,
+             que acontece longe do computador. Os campos são os mesmos do modal do vicios.html porque o
+             mapa de risco lê exatamente eles. -->
+        <div id="vicCont" hidden>
+          <div id="vicContLista"></div>
+          <div id="vicLapsoForm" hidden>
+            <p class="leit-hint" id="vicLapsoQual"></p>
+            <div class="halt-chips" id="vicLapsoHalt">
+              <button data-h="hungry">🍽 fome</button><button data-h="angry">😤 raiva</button>
+              <button data-h="lonely">🫥 solidão</button><button data-h="tired">🥱 cansaço</button>
+            </div>
+            <label>Onde <input type="text" id="vlPlace" placeholder="ex: em casa, no carro"></label>
+            <label>Contexto <select id="vlContext">
+              <option value="">— escolher —</option>
+              <option value="alone">sozinho</option>
+              <option value="people">com gente presencial</option>
+              <option value="online">online (chat, redes)</option>
+              <option value="work">no meio do trabalho</option>
+            </select></label>
+            <label>Gatilho percebido <input type="text" id="vlTrigger" placeholder="emoção, evento, pensamento"></label>
+            <label>O que aprendeu (opcional) <textarea id="vlNote" rows="2" placeholder="sem culpa"></textarea></label>
+          </div>
         </div>
       </div>
       <div class="modal-actions">
