@@ -994,6 +994,20 @@ function renderCards(snap){
         <button class="mini-btn" data-ev="leit.novo">+ começar um livro</button></div>`, done:false, mini:'lido' });
   }
 
+  /* CENTRAL-AVISO-2026-09-09 · o Sistema Central não existia no celular: 97 tarefas em alerta e 94
+     vencidas viviam só numa aba do navegador do Mac, e o card do hub só falava com a janela aberta.
+     Aqui é leitura (editar é lá), mas ver o número e a tarefa do topo é o que faz lembrar de abrir. */
+  if (snap.central && (snap.central.titulo || snap.central.sinal)){
+    const ct = snap.central;
+    const passos = (Array.isArray(ct.passos) ? ct.passos : []).slice(0, 3)
+      .map(x => `<div class="ct-passo">• ${escapeHtml(x.t || '')}${x.meta ? `<small>${escapeHtml(x.meta)}</small>` : ''}</div>`).join('');
+    const body = `<div class="ct-sinal ${ct.cor === 'vermelho' ? 'ct-vermelho' : (ct.cor === 'amarelo' ? 'ct-amarelo' : '')}">${escapeHtml(ct.sinal || '')}</div>` +
+      (ct.titulo ? `<div class="ct-topo"><b>${escapeHtml(ct.titulo)}</b>${ct.sub ? `<span>${escapeHtml(ct.sub)}</span>` : ''}</div>` : '') +
+      (passos ? `<div class="ct-passos">${passos}</div>` : '');
+    daily.push({ key:'central', title:'Sistema Central', ic:'🗂',
+      badge: ct.alerta ? `${ct.alerta} em alerta` : '', body, done:false, mini:'' });
+  }
+
   // PÍLULA DO DIA — MENTE-2026-09-02 · espelho do card do hub (mesma seleção; "li" marca no Mac)
   if (snap.pilula && snap.pilula.titulo){
     const pl = snap.pilula, pend = pendingFor('pilula', !!pl.lida);
@@ -1006,7 +1020,7 @@ function renderCards(snap){
   }
 
   // ---- ordena e renderiza ---- (Fechar o dia/Reflexão são de fim de dia → vão pro fim; ORDEM-2026-07-16)
-  const CARD_ORDER = { agua:1, comer:2, remedios:3, prio:4, habitos:5, skin:6, med:7, mob:8, pelv:9, leit:10, pilula:10.5, reflexao:11, daylog:12 };
+  const CARD_ORDER = { agua:1, comer:2, remedios:3, prio:4, central:4.5, habitos:5, skin:6, med:7, mob:8, pelv:9, leit:10, pilula:10.5, reflexao:11, daylog:12 };
   const ord = c => (CARD_ORDER[c.key] || 50);
   const parts = [];
   const pend = daily.filter(c => !c.done).sort((a,b) => ord(a)-ord(b));
