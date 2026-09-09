@@ -1508,12 +1508,44 @@ function openListaAddModal(){
   setTimeout(() => { try { $('laTitulo').focus(); } catch(e){} }, 60);
 }
 function closeListaAddModal(){ $('listaAddModal').hidden = true; }
+/* LEITURA-FIX-2026-09-08 · adicionar livro dava ZERO retorno na tela: o modal fechava, o evento ia
+   pro Mac, e só depois de segundos (ou 15s) o snapshot voltava com o livro. Se o título já existisse,
+   o Mac descartava em silêncio e NADA acontecia nunca. Do lado de cá isso é indistinguível de quebrado
+   — foi exatamente o que o Lucas viu ao adicionar "Carmilla", que já estava na lista desde a
+   importação da pesquisa. Agora: avisa na hora se já existe (e onde), e insere OTIMISTA quando é novo. */
 function saveListaAdd(){
   const title = $('laTitulo').value.trim();
   if (!title){ flashError('título?'); return; }
-  const evt = { type:'leitura.addlista', title, author:$('laAutor').value.trim(), cat:$('laCat').value };
+  const cat = $('laCat').value, author = $('laAutor').value.trim();
+  const lst = (_lastSnap && _lastSnap.leituraLista) || null;
+  const existente = lst && Array.isArray(lst.toRead)
+    ? lst.toRead.filter(Boolean).find(b => (b.title||'').trim().toLowerCase() === title.toLowerCase())
+    : null;
+  const novoId = 'tr_c' + Math.floor(Date.now()/1000).toString(36) + Math.floor(Math.random()*900+100);
+  const evt = { type:'leitura.addlista', id2:novoId, title, author, cat };
   closeListaAddModal();
+  if (existente){
+    /* já está lá: diz onde, e manda o evento assim mesmo pra corrigir categoria/autor que faltem */
+    const ondeAgora = CAT_LABEL[existente.cat] || CAT_LABEL.outros;
+    const mudaCat = cat && existente.cat !== cat;
+    flashError(mudaCat ? `"${title}" já estava em ${ondeAgora} — movendo pra ${CAT_LABEL[cat]||cat}`
+                       : `"${title}" já está na lista, em ${ondeAgora}`);
+    if (mudaCat && _lastSnap){ existente.cat = cat; renderListaSeAberta(); }
+    if (!mudaCat && !(author && !existente.author)) return;   // nada a mudar: nem manda evento
+  } else if (_lastSnap){
+    /* novo: aparece na hora, com id real (o Mac honra o id que vem do celular) */
+    _lastSnap.leituraLista = _lastSnap.leituraLista || { toRead: [] };
+    _lastSnap.leituraLista.toRead = (_lastSnap.leituraLista.toRead || []).concat([{ id:novoId, title, author, cat }]);
+    flashError(`"${title}" adicionado em ${CAT_LABEL[cat]||cat}`);
+    _catAberta[cat] = true;                 // abre a seção pra ele VER o livro entrando
+    renderListaSeAberta();
+  }
   postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+}
+/* re-render do modal da lista se ele estiver aberto (o add fecha só o modal de cima) */
+function renderListaSeAberta(){
+  try{ if (!$('listaModal').hidden) openListaModal(); }catch(e){}
+  try{ if (_lastSnap) render(_lastSnap); }catch(e){}
 }
 function saveLeitModal(){
   if (!_leitBook) return;
