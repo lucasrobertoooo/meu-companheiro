@@ -275,6 +275,26 @@
       </div>
     </div>
   </div>
+  <!-- PARIDADE-LEITURA-2026-09-08 · estante de terminados e destaques: existiam só no leitura.html -->
+  <div class="modal-backdrop" id="finModal" hidden>
+    <div class="modal modal-tall">
+      <h3>Terminados <span class="lista-n" id="finN"></span></h3>
+      <div class="lista-corpo" id="finCorpo"></div>
+      <div class="modal-actions"><button id="finFechar" class="btn">fechar</button></div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="hlModal" hidden>
+    <div class="modal modal-tall">
+      <h3 id="hlTitulo">Destaques</h3>
+      <div class="lista-corpo" id="hlCorpo"></div>
+      <label>Novo destaque <textarea id="hlTexto" rows="3" placeholder="a frase que te pegou"></textarea></label>
+      <label>Onde (opcional) <input type="text" id="hlSrc" placeholder="ex: Ato III · solilóquio"></label>
+      <div class="modal-actions">
+        <button id="hlFechar" class="btn ghost">fechar</button>
+        <button id="hlSave" class="btn">✓ guardar</button>
+      </div>
+    </div>
+  </div>
   <div class="modal-backdrop" id="listaAddModal" hidden>
     <div class="modal">
       <h3>Adicionar à lista</h3>
@@ -291,6 +311,8 @@
     <div class="modal">
       <h3 id="startTitulo">Começar livro</h3>
       <div class="leit-sub" id="startSub"></div>
+      <!-- PARIDADE-LEITURA-2026-09-08 · título livre: só aparece quando o livro não veio da lista -->
+      <input type="text" id="startTituloLivre" placeholder="título do livro" hidden>
       <div class="start-fmt" id="startFmt">
         <button data-f="paper" class="on">📖 papel</button><button data-f="audio">🎧 áudio</button>
       </div>
@@ -330,6 +352,10 @@
     <div class="modal">
       <h3 id="cmPortionTitle">Porção</h3>
       <div class="cm-psub" id="cmPortionSub"></div>
+      <!-- PARIDADE-COMER-2026-09-08 · o guia de medidas (o ⓘ do comer.html) já viajava no snapshot e
+           chegava até o DOM em data-info, mas nada nunca lia. Aqui é onde ele serve: na hora de decidir
+           a quantidade. -->
+      <p class="cm-info" id="cmPortionInfo" hidden></p>
       <div class="cm-pbtns" id="cmPortionBtns"></div>
       <div class="cm-pexact">ou exato: <input type="number" id="cmPortionExact" inputmode="numeric" placeholder="g"> g <button id="cmPortionGo" class="btn">ok</button></div>
       <div class="modal-actions"><button id="cmPortionClose" class="btn ghost">cancelar</button></div>

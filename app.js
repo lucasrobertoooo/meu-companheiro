@@ -187,7 +187,18 @@ async function enviarEvento(evt){
 async function postEvent(partial){
   /* AUDIT2-2026-09-02 (M3) · `seq` em ms desempata eventos do MESMO segundo no ingest do Mac (o nome
      do arquivo é uuid aleatório — log-até-100% + finish em <1s podiam inverter e envenenar o finish). */
-  const evt = { id: uuid(), ts: Math.floor(Date.now()/1000), seq: Date.now(), date: todayStr(), source: 'mobile', v: 1, ...partial };
+  /* IDHIJACK-2026-09-08 · O BUG MAIS CARO DA FILA. O spread vem por último, então um payload com `id:`
+     (o id do alimento, do hábito, da nota, da música, da linha do financeiro) SOBRESCREVIA o uuid do
+     envelope. E o envelope é o nome do arquivo no inbox — que o Mac deduplica contra `_done/`, guardado
+     por 60 dias, e que o GitHub recusa com 422 ("já entregue") se ainda existir. Resultado: cada id de
+     domínio passava UMA VEZ a cada 60 dias e do segundo em diante era descartado EM SILÊNCIO, com a UI
+     otimista mostrando sucesso. Marcar o hábito "cypher" funcionava no primeiro dia e nunca mais;
+     ciclar o status de uma linha do financeiro, uma vez por linha; registrar whey, uma vez por bimestre.
+     Correção: o envelope manda no `id` sempre; o id de domínio viaja em `rid` (e o Mac lê `rid or id`,
+     então os eventos velhos que já estão na fila do celular continuam sendo aplicados certo). */
+  const envId = uuid();
+  const evt = { id: envId, ts: Math.floor(Date.now()/1000), seq: Date.now(), date: todayStr(), source: 'mobile', v: 1, ...partial };
+  if (evt.id !== envId) { evt.rid = evt.id; evt.id = envId; }
   if (!getCfg() || !getCfg().pat) throw new Error('conecte o token primeiro (engrenagem)');
   /* AUDIT-2026-09-02 · PERSISTE ANTES de enviar. O iOS mata o JS sem aviso (trocar de app, travar a
      tela) — com o PUT em voo e nada na fila, a marcação que a UI já mostrou evaporava. Agora o evento
@@ -867,7 +878,9 @@ function renderCards(snap){
         <div class="book-bar"><div class="book-fill" style="width:${pct}%"></div></div>
         <div class="book-meta"><span>${meta}</span>
           <button class="book-reg" data-ev="leit.log" ${dataAttrs}>${b.done?(b.audio?'atualizar tempo':'atualizar página'):'registrar leitura'}</button></div>
-        <div class="book-acts"><button class="book-done-btn" data-ev="leit.finish" data-book="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}">✔ concluir</button></div>
+        <div class="book-acts">
+          <button class="mini-btn" data-ev="leit.hl" data-book="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}">✎ destaques${(b.hl && b.hl.length) ? ` (${b.hl.length})` : ''}</button>
+          <button class="book-done-btn" data-ev="leit.finish" data-book="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}">✔ concluir</button></div>
       </div>`;
     }).join('');
     const stk = snap.leitura.streak || 0;
@@ -876,7 +889,7 @@ function renderCards(snap){
     const nLista = (lst && Array.isArray(lst.toRead)) ? lst.toRead.length : 0;
     const rodape = lst ? `<div class="book-acts">
         <button class="mini-btn" data-ev="leit.lista">📚 lista de leitura (${nLista})</button>
-        <button class="mini-btn" data-ev="leit.lista" data-sec="fin" disabled style="pointer-events:none">${lst.fin || 0} terminado${(lst.fin||0)===1?'':'s'}${lst.finAno?` · ${lst.finAno} no ano`:''}</button>
+        <button class="mini-btn" data-ev="leit.fin">📕 ${lst.fin || 0} terminado${(lst.fin||0)===1?'':'s'}${lst.finAno?` · ${lst.finAno} no ano`:''}</button>
       </div>` : '';
     daily.push({ key:'leit', title:'Leitura', ic:icon('leitura'), badge: stk > 0 ? `${stk}d` : '',
       body:`<div class="book-list">${rows}</div>${rodape}`, done: books.length > 0 && books.every(b => b.done), mini:'lido' });
@@ -885,7 +898,8 @@ function renderCards(snap){
     const lst = snap.leituraLista;
     const nLista = Array.isArray(lst.toRead) ? lst.toRead.length : 0;
     daily.push({ key:'leit', title:'Leitura', ic:icon('leitura'), badge:'',
-      body:`<div class="book-acts"><button class="mini-btn" data-ev="leit.lista">📚 lista de leitura (${nLista})</button></div>`, done:false, mini:'lido' });
+      body:`<div class="book-acts"><button class="mini-btn" data-ev="leit.lista">📚 lista de leitura (${nLista})</button>
+        <button class="mini-btn" data-ev="leit.novo">+ começar um livro</button></div>`, done:false, mini:'lido' });
   }
 
   // PÍLULA DO DIA — MENTE-2026-09-02 · espelho do card do hub (mesma seleção; "li" marca no Mac)
@@ -970,6 +984,10 @@ function openComerPortion(id, nome, baseProt, medida){
   $('cmPortionSub').textContent = (medida||'') + '  ·  1× = ' + baseProt + 'g';
   const cm = _lastSnap && _lastSnap.comer;
   const item = cm && ((cm.banco||[]).find(b => b.id===id) || (cm.combos||[]).find(b => b.id===id));  // PARIDADE-COMER-2026-08-24
+  /* PARIDADE-COMER-2026-09-08 · guia de medidas do ⓘ (o Mac abre num scrim; aqui vem junto da escolha) */
+  const info = (item && item.info) || '';
+  $('cmPortionInfo').textContent = info;
+  $('cmPortionInfo').hidden = !info;
   const opts = item && item.opts;
   if (opts && opts.length){
     // opções próprias do item (ex.: leite em 150/200/250/300ml)
@@ -1035,6 +1053,7 @@ function render(snap){
   renderHero(snap.creature || {});
   renderToday(snap);
   renderCards(snap);
+  try{ renderAvisosDoMac(snap); }catch(e){}    // CANAL-DE-VOLTA-2026-09-08
   if (!$('finFull').hidden) renderFinFull();   // mantém a tela cheia do financeiro em sincronia
   if (!$('extratoFull').hidden) renderExtrato();
   /* AUDIT2-2026-09-02 (B6) · modais abertos ficavam com DOM defasado até a próxima interação */
@@ -1091,13 +1110,45 @@ function showError(msg){ $('cards').innerHTML = `<div class="state-msg err">${es
 /* FLASH-2026-08-26 · dois erros dentro da mesma janela de 3s se aninhavam: o segundo capturava a MENSAGEM
    DE ERRO do primeiro como "texto original" e restaurava ela — a mensagem de erro ficava grudada no lugar
    do frescor pra sempre. Agora só a primeira chamada guarda o original e o timer é único. */
-function flashError(msg){
+function flashError(msg, ms){
   const f = $('freshness'); if (!f) return;
   /* AUDIT-2026-09-02 · guarda/restaura innerHTML: o aviso de defasagem ("⚠ sem sincronizar") tem markup
      e voltava como texto puro, perdendo o estilo até o próximo poll. */
   if (_flashTimer) clearTimeout(_flashTimer); else _flashOrig = f.innerHTML;
   f.textContent = msg;
-  _flashTimer = setTimeout(() => { f.innerHTML = _flashOrig; _flashTimer = null; _flashOrig = null; }, 3000);
+  _flashTimer = setTimeout(() => { f.innerHTML = _flashOrig; _flashTimer = null; _flashOrig = null; }, ms || 3000);
+}
+
+/* ===== CANAL-DE-VOLTA-2026-09-08 · o que o Mac fez com o que eu mandei =====
+   Até agora o celular só sabia se o GitHub aceitou o arquivo. O que acontecia DEPOIS — o Mac descartar
+   "já está na lista", "esse livro já foi concluído", "hábito inexistente", ou mandar o evento pra
+   quarentena — não voltava por canal nenhum, e a tela otimista seguia mostrando sucesso. Era a raiz do
+   "adicionei e não aconteceu nada". Agora o ingest grava o veredicto, ele viaja em `snap.avisos`, e
+   aqui a gente mostra os que ainda não foram mostrados (guardando os ids pra não repetir a cada poll). */
+const AVISOS_VISTOS_KEY = 'avisosMacVistos';
+let _avisoFila = [], _avisoRodando = false;
+function _avisosVistos(){
+  try{ const v = JSON.parse(localStorage.getItem(AVISOS_VISTOS_KEY) || '[]'); return Array.isArray(v) ? v : []; }
+  catch{ return []; }
+}
+function _avisoDrenar(){
+  if (_avisoRodando || !_avisoFila.length) return;
+  _avisoRodando = true;
+  const a = _avisoFila.shift();
+  flashError((a.nivel === 'erro' ? '⚠ ' : '') + a.motivo, 5200);
+  setTimeout(() => { _avisoRodando = false; _avisoDrenar(); }, 5600);
+}
+function renderAvisosDoMac(snap){
+  const lista = (snap && Array.isArray(snap.avisos)) ? snap.avisos.filter(Boolean) : [];
+  if (!lista.length) return;
+  const vistos = _avisosVistos(), setV = new Set(vistos);
+  const novos = lista.filter(a => a && a.id && a.motivo && !setV.has(a.id));
+  if (!novos.length) return;
+  novos.forEach(a => setV.add(a.id));
+  /* só os 3 mais recentes viram toast — se ficou uma semana offline não vale enfileirar 20 */
+  novos.slice(-3).forEach(a => _avisoFila.push(a));
+  try{ localStorage.setItem(AVISOS_VISTOS_KEY, JSON.stringify([...setV].slice(-60))); }catch(e){}
+  _avisoDrenar();
 }
 
 /* ---------- push nativo (iOS 16.4+ · precisa do app instalado na tela inicial) ---------- */
@@ -1434,11 +1485,18 @@ function openListaModal(){
   $('listaN').textContent = `· ${(lst.toRead || []).length} livros`;
   $('listaCorpo').innerHTML = CAT_ORDEM.filter(c => porCat[c] && porCat[c].length).map(c => {
     const aberta = !!_catAberta[c];
+    /* PARIDADE-LEITURA-2026-09-08 · o celular só sabia ADICIONAR. Tirar da lista e mudar de categoria
+       eram só no Mac — e é o que mais acontece (título errado, livro que ele decidiu não ler, livro que
+       entrou sem categoria pela importação). Tocar no título reabre o formulário preenchido (salvar com
+       outra categoria MOVE, pelo mesmo caminho de "já está na lista"); o ✕ tira. */
     const livros = porCat[c].map(b => `
       <div class="lst-item">
-        <div class="lst-tit"><b>${escapeHtml(b.title)}</b>${b.author ? `<span>${escapeHtml(b.author)}</span>` : ''}</div>
+        <button class="lst-tit" data-edit="1" data-title="${escapeHtml(b.title)}"
+          data-author="${escapeHtml(b.author || '')}" data-cat="${escapeHtml(b.cat || 'outros')}">
+          <b>${escapeHtml(b.title)}${b.rec ? '<span class="lst-rec">recomendado</span>' : ''}</b>${b.author ? `<span>${escapeHtml(b.author)}</span>` : ''}${b.rec && b.recPor ? `<span class="lst-recpor">${escapeHtml(b.recPor)}</span>` : ''}</button>
         <button class="lst-comecar" data-tid="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}"
           data-author="${escapeHtml(b.author || '')}" data-fmt="${escapeHtml(b.format || '')}" ${podeComecar ? '' : 'disabled'}>começar</button>
+        <button class="lst-tirar" data-tid="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}" aria-label="tirar da lista">✕</button>
       </div>`).join('');
     return `<div class="cat-sec">
       <button class="cat-head" data-cat="${c}"><span>${CAT_LABEL[c]}</span><span class="n">${porCat[c].length} ${aberta ? '▾' : '▸'}</span></button>
@@ -1450,12 +1508,20 @@ function openListaModal(){
 }
 function closeListaModal(){ $('listaModal').hidden = true; }
 
-function openStartModal(ctx){        // ctx = {tId, title, author, format?} · format da lista trava o toggle
+function openStartModal(ctx){        // ctx = {tId, title, author, format?} · sem title = livro fora da lista
   _startCtx = ctx;
   _startFmt = (ctx.format === 'audio' || ctx.format === 'paper') ? ctx.format : 'paper';
-  $('startTitulo').textContent = `Começar “${ctx.title}”`;
+  /* PARIDADE-LEITURA-2026-09-08 · o Mac deixa começar um livro digitando o título (openAddBook com
+     título livre). No celular só dava pra começar item da lista: lista vazia = sem saída. */
+  const livre = !ctx.title;
+  $('startTituloLivre').hidden = !livre;
+  if (livre) $('startTituloLivre').value = '';
+  $('startTitulo').textContent = livre ? 'Começar um livro' : `Começar “${ctx.title}”`;
   $('startSub').textContent = ctx.author || '';
-  $('startFmt').hidden = !!ctx.format;   // formato já conhecido → sem escolha
+  /* PARIDADE-2026-09-08 · o toggle papel/áudio SEMPRE aparece no modal de início, pré-marcado com o
+     formato que veio da lista. Escondê-lo congelava o formato: um item gravado como papel nunca podia
+     virar audiobook, e é comum decidir isso na hora de começar. */
+  $('startFmt').hidden = false;
   _startFmtPaint();
   $('startTot').value = ''; $('startCur').value = '';
   $('startModal').hidden = false;
@@ -1470,6 +1536,11 @@ function _startFmtPaint(){
 function closeStartModal(){ $('startModal').hidden = true; _startCtx = null; }
 function saveStartModal(){
   if (!_startCtx) return;
+  if (!_startCtx.title){                       // livro fora da lista: o título vem do campo
+    const t = $('startTituloLivre').value.trim();
+    if (!t){ flashError('qual é o título?'); return; }
+    _startCtx.title = t;
+  }
   const total = parseInt($('startTot').value, 10);
   if (isNaN(total) || total < 1){ flashError(_startFmt === 'audio' ? 'quantos minutos dura?' : 'quantas páginas tem?'); return; }
   const cur = Math.max(0, parseInt($('startCur').value, 10) || 0);
@@ -1505,10 +1576,10 @@ function tirarLivro(){
   postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 
-function openListaAddModal(){
-  $('laTitulo').value = ''; $('laAutor').value = '';
+function openListaAddModal(pre){
+  $('laTitulo').value = (pre && pre.title) || ''; $('laAutor').value = (pre && pre.author) || '';
   if (!$('laCat').options.length) $('laCat').innerHTML = CAT_ORDEM.map(c => `<option value="${c}">${CAT_LABEL[c]}</option>`).join('');
-  $('laCat').value = 'outros';
+  $('laCat').value = (pre && CAT_LABEL[pre.cat]) ? pre.cat : 'outros';
   $('listaAddModal').hidden = false;
   setTimeout(() => { try { $('laTitulo').focus(); } catch(e){} }, 60);
 }
@@ -1547,6 +1618,95 @@ function saveListaAdd(){
   }
   postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
+/* PARIDADE-LEITURA-2026-09-08 · tirar da lista (espelho do removeToRead do leitura.html) */
+function tirarDaLista(tId, title){
+  if (!confirm(`Tirar “${title}” da lista?`)) return;
+  if (_lastSnap && _lastSnap.leituraLista && Array.isArray(_lastSnap.leituraLista.toRead)){
+    _lastSnap.leituraLista.toRead = _lastSnap.leituraLista.toRead.filter(b => b && b.id !== tId);
+    renderListaSeAberta();
+  }
+  flashError(`“${title}” saiu da lista`);
+  postEvent({ type:'leitura.dellista', tId, title }).then(schedulePrioRefresh)
+    .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+}
+
+/* PARIDADE-LEITURA-2026-09-08 · estante de terminados. O celular mostrava só o NÚMERO, num botão
+   desligado — 18 livros lidos que ele não conseguia abrir fora do Mac. */
+function openFinModal(){
+  const lst = (_lastSnap && _lastSnap.leituraLista) || null;
+  const fins = (lst && Array.isArray(lst.finished)) ? lst.finished.filter(Boolean) : [];
+  $('finN').textContent = `· ${fins.length}`;
+  $('finCorpo').innerHTML = fins.slice().reverse().map(b => {
+    const est = b.rating ? '★'.repeat(b.rating) + '☆'.repeat(5 - b.rating) : '';
+    const nHl = Array.isArray(b.hl) ? b.hl.length : 0;
+    const quando = b.endDate ? b.endDate.split('-').reverse().slice(0, 2).join('/') : '';
+    return `<div class="fin-item">
+      <div class="fin-tit"><b>${escapeHtml(b.title)}${b.audio ? ' 🎧' : ''}</b>
+        <span>${escapeHtml(b.author || '')}${est ? ' · ' + est : ''}${quando ? ' · ' + quando : ''}</span></div>
+      <button class="fin-hl" data-book="${escapeHtml(b.id)}" data-title="${escapeHtml(b.title)}" ${nHl ? '' : 'disabled'}>✎ ${nHl}</button>
+    </div>`;
+  }).join('') || '<div class="leit-hint">nenhum livro concluído ainda</div>';
+  $('finModal').hidden = false;
+}
+function closeFinModal(){ $('finModal').hidden = true; }
+
+/* PARIDADE-LEITURA-2026-09-08 · destaques. Era a parte da leitura que MAIS pede o celular (a frase que
+   te pega, no ônibus, longe do Mac) e era a única que só existia lá. O HALT do módulo de vícios come
+   desses destaques, então guardar aqui alimenta o resto do sistema. */
+let _hlCtx = null;      // { id, title }
+function _hlDoLivro(bookId){
+  const snap = _lastSnap || {};
+  const emCurso = ((snap.leitura && snap.leitura.books) || []).find(b => b && b.id === bookId);
+  if (emCurso) return Array.isArray(emCurso.hl) ? emCurso.hl : [];
+  const fin = ((snap.leituraLista && snap.leituraLista.finished) || []).find(b => b && b.id === bookId);
+  return (fin && Array.isArray(fin.hl)) ? fin.hl : [];
+}
+function openHlModal(bookId, title){
+  _hlCtx = { id: bookId, title };
+  $('hlTitulo').textContent = `Destaques · ${title}`;
+  renderHl();
+  $('hlTexto').value = ''; $('hlSrc').value = '';
+  $('hlModal').hidden = false;
+}
+function renderHl(){
+  if (!_hlCtx) return;
+  const hs = _hlDoLivro(_hlCtx.id);
+  $('hlCorpo').innerHTML = hs.map(h => `<div class="hl-item">
+      <div class="hl-txt">${escapeHtml(h.text || '')}${h.src ? `<span class="hl-src">${escapeHtml(h.src)}</span>` : ''}</div>
+      <button class="hl-del" data-hl="${escapeHtml(h.id || '')}" aria-label="apagar">✕</button>
+    </div>`).join('') || '<div class="leit-hint">nenhum destaque ainda — guarda o primeiro aí embaixo</div>';
+}
+function closeHlModal(){ $('hlModal').hidden = true; _hlCtx = null; }
+function _hlListaLocal(bookId){
+  /* devolve o array vivo dentro do _lastSnap, pra inserção/remoção otimista aparecer na hora */
+  const snap = _lastSnap || {};
+  const emCurso = ((snap.leitura && snap.leitura.books) || []).find(b => b && b.id === bookId);
+  if (emCurso){ emCurso.hl = Array.isArray(emCurso.hl) ? emCurso.hl : []; return emCurso.hl; }
+  const fin = ((snap.leituraLista && snap.leituraLista.finished) || []).find(b => b && b.id === bookId);
+  if (fin){ fin.hl = Array.isArray(fin.hl) ? fin.hl : []; return fin.hl; }
+  return null;
+}
+function saveHl(){
+  if (!_hlCtx) return;
+  const text = $('hlTexto').value.trim();
+  if (!text){ flashError('escreve o destaque primeiro'); return; }
+  const src = $('hlSrc').value.trim();
+  const hlId = 'h_c' + Math.floor(Date.now()/1000).toString(36) + Math.floor(Math.random()*900+100);
+  const local = _hlListaLocal(_hlCtx.id);
+  if (local){ local.push({ id:hlId, text, src, tags:[] }); renderHl(); }
+  $('hlTexto').value = ''; $('hlSrc').value = '';
+  postEvent({ type:'leitura.hladd', bookId:_hlCtx.id, hlId, text, src }).then(schedulePrioRefresh)
+    .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+}
+function apagarHl(hlId){
+  if (!_hlCtx || !hlId) return;
+  if (!confirm('Apagar este destaque?')) return;
+  const local = _hlListaLocal(_hlCtx.id);
+  if (local){ const i = local.findIndex(h => h && h.id === hlId); if (i >= 0) local.splice(i, 1); renderHl(); }
+  postEvent({ type:'leitura.hldel', bookId:_hlCtx.id, hlId }).then(schedulePrioRefresh)
+    .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+}
+
 /* re-render do modal da lista se ele estiver aberto (o add fecha só o modal de cima) */
 function renderListaSeAberta(){
   try{ if (!$('listaModal').hidden) openListaModal(); }catch(e){}
@@ -1717,6 +1877,9 @@ const onCardClick = async (e) => {
   if (ev === 'mente.vicios'){ openViciosModal(); return; }
   if (ev === 'mente.musicas'){ openMusModal(); return; }
   if (ev === 'leit.lista'){ openListaModal(); return; }
+  if (ev === 'leit.fin'){ openFinModal(); return; }                                    // PARIDADE-2026-09-08
+  if (ev === 'leit.hl'){ openHlModal(btn.dataset.book, btn.dataset.title || 'livro'); return; }
+  if (ev === 'leit.novo'){ openStartModal({ tId:'', title:'', author:'', format:'' }); return; }
   if (ev === 'leit.finish'){ openFinishModal(btn.dataset.book, btn.dataset.title || 'este livro'); return; }
   if (ev === 'leit.log'){ openLeitModal(btn.dataset.book, btn.dataset.title || '', Number(btn.dataset.cur) || 0,
                                         Number(btn.dataset.tot) || 0, btn.dataset.audio === '1'); return; }
@@ -1963,13 +2126,31 @@ $('musLista').addEventListener('click', e => {
 });
 /* PARIDADE-LEITURA-2026-08-30 · lista / começar / concluir */
 $('listaFechar').addEventListener('click', closeListaModal);
-$('listaAdd').addEventListener('click', openListaAddModal);
+$('listaAdd').addEventListener('click', () => openListaAddModal());   // sem o wrapper, o Event virava `pre`
 $('listaModal').addEventListener('click', e => { if (e.target === $('listaModal')) closeListaModal(); });
 $('listaCorpo').addEventListener('click', e => {
   const h = e.target.closest('.cat-head');
   if (h){ _catAberta[h.dataset.cat] = !_catAberta[h.dataset.cat]; openListaModal(); return; }
+  const x = e.target.closest('.lst-tirar');
+  if (x){ tirarDaLista(x.dataset.tid, x.dataset.title); return; }
+  const ed = e.target.closest('.lst-tit');
+  if (ed){ openListaAddModal({ title:ed.dataset.title, author:ed.dataset.author, cat:ed.dataset.cat }); return; }
   const c = e.target.closest('.lst-comecar');
   if (c && !c.disabled) openStartModal({ tId:c.dataset.tid, title:c.dataset.title, author:c.dataset.author, format:c.dataset.fmt || '' });
+});
+/* PARIDADE-LEITURA-2026-09-08 · terminados e destaques */
+$('finFechar').addEventListener('click', closeFinModal);
+$('finModal').addEventListener('click', e => { if (e.target === $('finModal')) closeFinModal(); });
+$('finCorpo').addEventListener('click', e => {
+  const b = e.target.closest('.fin-hl');
+  if (b && !b.disabled) openHlModal(b.dataset.book, b.dataset.title || 'livro');
+});
+$('hlFechar').addEventListener('click', closeHlModal);
+$('hlSave').addEventListener('click', saveHl);
+$('hlModal').addEventListener('click', e => { if (e.target === $('hlModal')) closeHlModal(); });
+$('hlCorpo').addEventListener('click', e => {
+  const d = e.target.closest('.hl-del');
+  if (d) apagarHl(d.dataset.hl);
 });
 $('laSave').addEventListener('click', saveListaAdd);
 $('laCancel').addEventListener('click', closeListaAddModal);

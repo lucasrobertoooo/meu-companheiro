@@ -496,6 +496,9 @@ body.finfull-on{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .lst-tit span{font-size:12px;color:var(--muted)}
 .lst-comecar{padding:6px 10px;border-radius:9px;border:1px solid var(--line);background:transparent;color:var(--ink);font-size:12.5px;white-space:nowrap}
 .lst-comecar[disabled]{opacity:.4}
+/* PARIDADE-LEITURA-2026-09-08 · título clicável (muda categoria) e ✕ (tira da lista) */
+button.lst-tit{flex:1;min-width:0;text-align:left;background:transparent;border:none;padding:0;color:inherit;font:inherit}
+.lst-tirar{width:30px;height:30px;flex:none;border-radius:9px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:13px;line-height:1}
 .start-fmt{display:flex;gap:8px;margin:6px 0 10px}
 .start-fmt button{flex:1;padding:9px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:14px}
 .start-fmt button.on{background:var(--card2,rgba(255,255,255,.06));color:var(--ink);border-color:var(--ink2,var(--ink))}
@@ -548,3 +551,22 @@ input[type="range"]{width:100%;margin-top:4px}
 .gx-row:last-child{border-bottom:none}
 .gx-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gx-row b{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* PARIDADE-LEITURA-2026-09-08 · estante de terminados, destaques e selo de recomendação */
+.fin-item{display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px dashed var(--line)}
+.fin-item:last-child{border-bottom:none}
+.fin-tit{flex:1;min-width:0}
+.fin-tit b{display:block;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fin-tit span{font-size:12px;color:var(--muted)}
+.fin-hl{padding:6px 10px;border-radius:9px;border:1px solid var(--line);background:transparent;color:var(--ink);font-size:12.5px;white-space:nowrap}
+.fin-hl[disabled]{opacity:.35}
+.hl-item{padding:9px 4px;border-bottom:1px dashed var(--line);display:flex;gap:8px;align-items:flex-start}
+.hl-item:last-child{border-bottom:none}
+.hl-txt{flex:1;min-width:0;font-size:13.5px;line-height:1.45}
+.hl-src{display:block;margin-top:3px;font-size:11.5px;color:var(--muted);font-style:italic}
+.hl-del{width:28px;height:28px;flex:none;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:12px;line-height:1}
+.lst-rec{display:inline-block;margin-left:6px;font-size:10.5px;padding:1px 5px;border-radius:6px;border:1px solid rgba(232,176,79,.45);color:#e8b04f;vertical-align:middle}
+.lst-recpor{display:block;font-size:11.5px;color:var(--muted);font-style:italic;margin-top:1px}
+#hlTexto{width:100%;box-sizing:border-box}
+.cm-info{margin:8px 0 0;font-size:12.5px;line-height:1.45;color:var(--muted)}
+#startTituloLivre{width:100%;box-sizing:border-box;margin:8px 0 2px}
