@@ -178,7 +178,8 @@
       <label>Uma frase <textarea id="deNote" rows="2"></textarea></label>
       <label>O que aprendi <textarea id="deLearn" rows="2"></textarea></label>
       <label>Faria diferente <textarea id="deChange" rows="2"></textarea></label>
-      <label>Uma boa notícia <textarea id="deCap" rows="2"></textarea></label>
+      <!-- "uma boa notícia" NÃO entra aqui: no Mac ela mora no capLog do state, não no diário. Editar
+           esse campo por aqui gravaria um dado que nenhuma tela do Mac lê. Ela segue no fechar o dia. -->
       <div class="modal-actions">
         <button id="deCancel" class="btn ghost">cancelar</button>
         <button id="deSave" class="btn">✓ salvar</button>

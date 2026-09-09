@@ -801,7 +801,8 @@ function renderCards(snap){
     else if (closed)     body = `<button class="mark-btn done" data-ev="day.open">dia fechado hoje ${em} · revisar</button>`;
     else                 body = `<div class="day-prompt">Como foi o seu dia?</div><button class="mark-btn" data-ev="day.open">fechar o dia</button>`;
     /* PARIDADE-DIARIO-2026-09-08 · o histórico existia só no Mac */
-    if (diarioHist().length) body += `<div class="book-acts"><button class="mini-btn" data-ev="day.hist">🗓 histórico (${diarioHist().length})</button></div>`;
+    const nHist = diarioHist().filter(e => e && e.date !== snap.date).length;
+    if (nHist) body += `<div class="book-acts"><button class="mini-btn" data-ev="day.hist">🗓 histórico (${nHist})</button></div>`;
     daily.push({ key:'daylog', title:'Fechar o dia', ic:icon('moon'), badge:'', body, done:closed, mini:`fechado ${em}` });
   }
 
@@ -1504,7 +1505,10 @@ function diarioHist(){
   return (_lastSnap && Array.isArray(_lastSnap.diarioHist)) ? _lastSnap.diarioHist.filter(Boolean) : [];
 }
 function openDiarioHist(){
-  const h = diarioHist();
+  /* PARIDADE-DIARIO-2026-09-08 · HOJE fica de fora: o card de hoje lê o `history` do state sagrado
+     (outro arquivo), então uma edição por aqui não apareceria lá e o app se contradiria. Hoje se
+     ajusta em "fechar o dia · revisar", que passa pelo hub. */
+  const h = diarioHist().filter(e => e && e.date !== (_lastSnap && _lastSnap.date));
   $('dhN').textContent = `· ${h.length}`;
   $('dhCorpo').innerHTML = h.map(e => {
     const dia = (e.date || '').split('-').reverse().join('/');
@@ -1517,10 +1521,11 @@ function openDiarioHist(){
 }
 function openDiarioEdit(date){
   const e = diarioHist().find(x => x && x.date === date); if (!e) return;
+  if (_lastSnap && date === _lastSnap.date){ flashError('hoje se ajusta em "fechar o dia"'); return; }
   _deCtx = date; _deMood = e.mood || null;
   $('deTitulo').textContent = (date || '').split('-').reverse().join('/');
   $('deNote').value = e.wellDone || ''; $('deLearn').value = e.learning || '';
-  $('deChange').value = e.wouldChange || ''; $('deCap').value = e.capText || '';
+  $('deChange').value = e.wouldChange || '';
   document.querySelectorAll('#deMoods button').forEach(b => b.classList.toggle('on', b.dataset.mood === _deMood));
   $('diarioEditModal').hidden = false;
 }
@@ -1528,10 +1533,10 @@ function saveDiarioEdit(){
   if (!_deCtx) return;
   const evt = { type:'daylog.edit', date:_deCtx, mood:_deMood || '',
                 wellDone:$('deNote').value.trim(), learning:$('deLearn').value.trim(),
-                wouldChange:$('deChange').value.trim(), capText:$('deCap').value.trim() };
+                wouldChange:$('deChange').value.trim() };
   const e = diarioHist().find(x => x && x.date === _deCtx);
   if (e){ e.mood = evt.mood; e.wellDone = evt.wellDone; e.learning = evt.learning;
-          e.wouldChange = evt.wouldChange; e.capText = evt.capText; }
+          e.wouldChange = evt.wouldChange; }
   $('diarioEditModal').hidden = true; _deCtx = null;
   openDiarioHist();
   postEvent(evt).then(schedulePrioRefresh)
