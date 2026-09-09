@@ -17,18 +17,28 @@
  #msg{margin-top:14px;font-size:13px;min-height:18px} .err{color:#e08a6f}
  .hint{margin-top:10px;font-size:12px;color:#6c6c74;font-style:italic}
 </style></head><body>
- <h2>Conectar banco</h2>
- <p>Escolha o banco (Santander) e faça o login — a senha vai direto pro banco, <b>não passa por aqui</b>.</p>
- <p>Ao terminar, o <b>itemId</b> aparece abaixo. <b>Copie e me mande no chat.</b></p>
+ <h2 id="tit">Conectar banco</h2>
+ <p>Faça o login — a senha vai direto pro banco, <b>não passa por aqui</b>.</p>
+ <p id="sub">Ao terminar, o <b>itemId</b> aparece abaixo. <b>Copie e me mande no chat.</b></p>
  <button id="open">Abrir conexão</button>
  <div id="msg"></div>
  <div id="out"></div>
  <div class="hint">isto cria uma conexão nova (com dados). Depois eu troco pela antiga que ficou vazia.</div>
  <script src="https://cdn.pluggy.ai/pluggy-connect/v2.8.2/pluggy-connect.js"></script>
  <script>
+  /* PARIDADE-PLUGGY-2026-09-08 · esta página era só pra CRIAR conexão nova (o Lucas copiava o itemId e
+     mandava no chat). Agora ela também RECONECTA: com `item` na URL, o Pluggy Connect abre direto no
+     banco daquele item (updateItem) e pede só o que faltou — MFA, senha nova — sem criar outro item. */
   var TOKEN = new URLSearchParams(location.search).get('token') || '';
+  var ITEM  = new URLSearchParams(location.search).get('item') || '';
   var items = [], msg = document.getElementById('msg'), btn = document.getElementById('open');
   if (!TOKEN) { btn.disabled = true; msg.className = 'err'; msg.textContent = 'Link sem token — peça um novo.'; }
+  if (ITEM) {
+    document.getElementById('tit').textContent = 'Reconectar banco';
+    document.getElementById('sub').innerHTML = 'É a mesma conexão de antes — nada muda no seu financeiro.';
+    btn.textContent = 'Reconectar';
+    var h = document.querySelector('.hint'); if (h) h.textContent = 'o Mac volta a puxar sozinho no próximo sync';
+  }
   function show(){
     document.getElementById('out').innerHTML = items.map(function(it){
       return '<div class="item">✅ <b>' + (it.name || 'banco') + '</b><br>itemId: <code>' + it.id + '</code></div>';
@@ -37,13 +47,16 @@
   btn.onclick = function(){
     btn.disabled = true; msg.textContent = 'abrindo…';
     try {
-      var pc = new PluggyConnect({
-        connectToken: TOKEN, connectorIds: [200], includeSandbox: true,
+      var conf = { connectToken: TOKEN, includeSandbox: true,
         onSuccess: function(data){ var it = (data && data.item) || {};
           items.push({ id: it.id, name: (it.connector && it.connector.name) || 'banco' }); show();
-          msg.className = ''; msg.textContent = 'Conectado! Copie o itemId acima e me mande.'; btn.disabled = false; },
+          msg.className = ''; msg.textContent = ITEM ? 'Reconectado. Pode fechar — o Mac puxa no próximo sync.'
+                                                     : 'Conectado! Copie o itemId acima e me mande.';
+          btn.disabled = false; },
         onError: function(e){ btn.disabled = false; msg.className = 'err'; msg.textContent = 'Erro: ' + ((e && e.message) || 'tente de novo'); }
-      });
+      };
+      if (ITEM) conf.updateItem = ITEM; else conf.connectorIds = [200];
+      var pc = new PluggyConnect(conf);
       pc.init();
     } catch(e){ btn.disabled = false; msg.className = 'err'; msg.textContent = 'Falha ao abrir: ' + e.message; }
   };

@@ -135,14 +135,53 @@
   </div>
 
   <!-- MENTE-2026-09-02 · pílula do dia + notas + terapia + vícios -->
+  <!-- PARIDADE-PILULA-2026-09-08 · o celular mostrava SÓ a pílula do dia. Busca, favoritos e histórico
+       (as 37 pílulas, o que já foi lido, o que ele marcou) eram só do saude_sexual.html. O catálogo vem
+       num arquivo à parte e fica em cache no aparelho, pra não engordar o snapshot em toda publicação. -->
   <div class="modal-backdrop" id="pilulaModal" hidden>
     <div class="modal modal-tall">
-      <div class="pil-cat" id="pilCat"></div>
-      <h3 id="pilTitulo"></h3>
-      <div class="lista-corpo"><p class="pil-texto" id="pilTexto"></p><p class="pil-apl" id="pilApl"></p></div>
+      <div class="start-fmt" id="pilTabs">
+        <button data-pt="hoje" class="on">do dia</button><button data-pt="busca">buscar</button><button data-pt="fav">favoritas</button><button data-pt="hist">histórico</button>
+      </div>
+      <div id="pilVer">
+        <div class="pil-cat" id="pilCat"></div>
+        <h3 id="pilTitulo"></h3>
+        <div class="lista-corpo"><p class="pil-texto" id="pilTexto"></p><p class="pil-apl" id="pilApl"></p></div>
+      </div>
+      <div id="pilLista" hidden>
+        <input type="text" id="pilBusca" placeholder="buscar por título, categoria ou trecho" hidden>
+        <div class="lista-corpo" id="pilCorpo"></div>
+      </div>
       <div class="modal-actions">
         <button id="pilFechar" class="btn ghost">fechar</button>
+        <button id="pilFav" class="btn ghost">☆ favoritar</button>
         <button id="pilLi" class="btn">✓ li, aprendi</button>
+      </div>
+    </div>
+  </div>
+  <!-- PARIDADE-DIARIO-2026-09-08 · o app só editava HOJE; o histórico do diário era só do Mac -->
+  <div class="modal-backdrop" id="diarioHistModal" hidden>
+    <div class="modal modal-tall">
+      <h3>Diário <span class="lista-n" id="dhN"></span></h3>
+      <div class="lista-corpo" id="dhCorpo"></div>
+      <div class="modal-actions"><button id="dhFechar" class="btn">fechar</button></div>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="diarioEditModal" hidden>
+    <div class="modal">
+      <h3 id="deTitulo">Editar dia</h3>
+      <div class="day-moods" id="deMoods">
+        <button class="dmood" data-mood="leve"><span class="dmood-emoji">😊</span>leve</button>
+        <button class="dmood" data-mood="normal"><span class="dmood-emoji">😐</span>normal</button>
+        <button class="dmood" data-mood="puxado"><span class="dmood-emoji">😩</span>puxado</button>
+      </div>
+      <label>Uma frase <textarea id="deNote" rows="2"></textarea></label>
+      <label>O que aprendi <textarea id="deLearn" rows="2"></textarea></label>
+      <label>Faria diferente <textarea id="deChange" rows="2"></textarea></label>
+      <label>Uma boa notícia <textarea id="deCap" rows="2"></textarea></label>
+      <div class="modal-actions">
+        <button id="deCancel" class="btn ghost">cancelar</button>
+        <button id="deSave" class="btn">✓ salvar</button>
       </div>
     </div>
   </div>

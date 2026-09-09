@@ -97,7 +97,22 @@ async function fetchSnapshot(){
 }
 
 // PLUGGY-RECONNECT · lê um arquivo qualquer do repo (ex.: reconnect.json com o connect_token). Null se não achar.
-/* AUDIT2-2026-09-02 · fetchRepoFile removido: 0 chamadas (fluxo de reconexão Pluggy morreu no app) */
+/* AUDIT2-2026-09-02 · fetchRepoFile tinha sido removido por não ter chamador. Voltou em
+   PARIDADE-PILULA-2026-09-08: o catálogo das 37 pílulas tem 39 KB e não pode viajar no snapshot (que é
+   republicado o dia inteiro) — mora em `_sync/pilulas.json`, é buscado UMA vez e fica em cache aqui no
+   aparelho até o Mac trocar a versão. A raiz do repo é o `_sync/` do Mac: o caminho aqui não leva prefixo. */
+async function fetchRepoFile(caminho){
+  const cfg = getCfg();
+  if (!cfg || !cfg.repo || !cfg.pat){
+    const r = await fetch('./' + caminho.split('/').pop(), { cache:'no-store' });   // dev/local
+    return r.ok ? r.json() : null;
+  }
+  const [owner, repo] = cfg.repo.split('/');
+  const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${caminho}`,
+    { headers:{ Authorization:`Bearer ${cfg.pat}`, Accept:'application/vnd.github.raw+json' }, cache:'no-store' });
+  if (!r.ok) return null;
+  return JSON.parse(await r.text());
+}
 
 /* ---------- escrita de evento (celular → inbox do repo) ---------- */
 // FRESCOR-2026-08-24 · idade do BATIMENTO do Mac (snap.pub, truncado em blocos de 6h). O `ts` não serve:
@@ -699,6 +714,14 @@ function renderFinFull(){
              // forçar atualização só é possível no próprio Meu Pluggy (MeuPluggy bloqueia refresh de terceiros)
              (hasBanks ? `<a class="fin-refresh" href="https://meu.pluggy.ai/overview" target="_blank" rel="noopener">Meu Pluggy ↗</a>` : '') +
              `</span></div>`;
+  /* PARIDADE-PLUGGY-2026-09-08 · reconectar banco. O handler `pluggy.reqtoken` existe no Mac desde
+     julho e o app NUNCA o chamava — quando uma conexão caía (é o que mais acontece: o banco pede MFA
+     de novo), a única saída era ir ao Mac. Agora pede o token daqui, espera ele aparecer no repo e
+     abre a página de conexão com o item certo. */
+  if (hasBanks){
+    body += `<div class="fin-banks">` + _lastSnap.pluggy.banks.filter(Boolean).map(b =>
+      `<button class="fin-refresh" data-ev="pluggy.reconn" data-item="${escapeHtml(b.id)}" data-nome="${escapeHtml(b.name || 'banco')}">🔌 reconectar ${escapeHtml(b.name || 'banco')}</button>`).join('') + `</div>`;
+  }
   body += finSumHtml(summaryOf(rows));
   if (rows.length) body += finCatsHtml(rows);
   // Sem linhas MANUAIS (o mês pode já ter só os cartões do Pluggy) → oferece copiar a estrutura.
@@ -753,7 +776,10 @@ function renderExtrato(){
   }).join('');
 }
 
-const DAY_MOOD_EMOJI = { leve:'😊', normal:'😐', puxado:'😩' };
+/* PARIDADE-DIARIO-2026-09-08 · o seletor do celular tem 3 humores; o Mac grava 5 (leve, bom, neutro,
+   puxado, difícil — diario.html:178). Pro HISTÓRICO não mostrar dia em branco, o mapa de exibição
+   cobre o vocabulário dos dois lados. Quem escolhe continua com os 3 chips. */
+const DAY_MOOD_EMOJI = { leve:'😊', bom:'🙂', normal:'😐', neutro:'😐', puxado:'😩', 'difícil':'😖' };
 let _cardExpanded = {};   // cards concluídos que o Lucas expandiu (default = minimizado; não persiste)
 // PELVIC-COUNT-2026-07-23 · otimista: soma/subtrai uma sessão (não é mais slot de faixa)
 function optimisticPelvic(delta){
@@ -774,6 +800,8 @@ function renderCards(snap){
     if (pend && !closed) body = `<button class="mark-btn wait" disabled>enviado ✓ · fecha quando o Mac abrir</button>`;
     else if (closed)     body = `<button class="mark-btn done" data-ev="day.open">dia fechado hoje ${em} · revisar</button>`;
     else                 body = `<div class="day-prompt">Como foi o seu dia?</div><button class="mark-btn" data-ev="day.open">fechar o dia</button>`;
+    /* PARIDADE-DIARIO-2026-09-08 · o histórico existia só no Mac */
+    if (diarioHist().length) body += `<div class="book-acts"><button class="mini-btn" data-ev="day.hist">🗓 histórico (${diarioHist().length})</button></div>`;
     daily.push({ key:'daylog', title:'Fechar o dia', ic:icon('moon'), badge:'', body, done:closed, mini:`fechado ${em}` });
   }
 
@@ -1335,14 +1363,91 @@ const CAT_LABEL = { vampiro:'🩸 vampiro', terror:'👁 terror', teatro:'🎭 t
 let _catAberta = {}, _startCtx = null, _finishCtx = null, _startFmt = 'paper';
 
 /* ===== MENTE-2026-09-02 · pílula / notas / terapia / vícios ===== */
-function openPilulaModal(){
+/* PARIDADE-PILULA-2026-09-08 · busca, favoritas e histórico. O celular via só a pílula do dia; as 37
+   do catálogo, o que já tinha lido e o que tinha marcado ficavam presos no saude_sexual.html. */
+const PIL_CACHE_KEY = 'pilulasCatalogo';
+let _pilCatalogo = null, _pilTab = 'hoje', _pilVendo = null;   // _pilVendo = pílula aberta na aba "do dia"
+function _pilLerCache(){
+  try{ const c = JSON.parse(localStorage.getItem(PIL_CACHE_KEY) || 'null');
+       return (c && Array.isArray(c.pilulas)) ? c : null; }catch{ return null; }
+}
+async function garantirCatalogoPilulas(){
+  const ver = (_lastSnap && _lastSnap.pilula && _lastSnap.pilula.catalogoVer) || null;
+  if (!_pilCatalogo) _pilCatalogo = _pilLerCache();
+  if (_pilCatalogo && (!ver || _pilCatalogo.ver === ver)) return _pilCatalogo;
+  const novo = await fetchRepoFile('pilulas.json');
+  if (novo && Array.isArray(novo.pilulas)){
+    _pilCatalogo = novo;
+    try{ localStorage.setItem(PIL_CACHE_KEY, JSON.stringify(novo)); }catch(e){}
+  }
+  return _pilCatalogo;
+}
+function pilFavoritos(){
+  const f = _lastSnap && _lastSnap.pilula && _lastSnap.pilula.favoritos;
+  return Array.isArray(f) ? f.filter(x => typeof x === 'string') : [];
+}
+function _pilAchar(id){
+  const c = _pilCatalogo && _pilCatalogo.pilulas;
+  return (Array.isArray(c) ? c.find(p => p && p.id === id) : null) || null;
+}
+function _pilMostrar(pl){
+  _pilVendo = pl || null;
+  $('pilCat').textContent = (pl && pl.categoria) || 'saúde sexual';
+  $('pilTitulo').textContent = (pl && pl.titulo) || '';
+  $('pilTexto').textContent = (pl && (pl.texto || pl.claim)) || '';
+  $('pilApl').textContent = (pl && pl.aplicacao) || '';
+  const doDia = !!(pl && _lastSnap && _lastSnap.pilula && pl.id === _lastSnap.pilula.id);
+  $('pilLi').hidden = !doDia || !!(_lastSnap.pilula && _lastSnap.pilula.lida);
+  const fav = pl && pilFavoritos().indexOf(pl.id) >= 0;
+  $('pilFav').hidden = !pl;
+  $('pilFav').textContent = fav ? '★ favorita' : '☆ favoritar';
+  $('pilFav').dataset.pid = (pl && pl.id) || '';
+  $('pilFav').dataset.on = fav ? '1' : '0';
+}
+function _pilPaint(){
+  document.querySelectorAll('#pilTabs button').forEach(b => b.classList.toggle('on', b.dataset.pt === _pilTab));
+  const lendo = _pilTab === 'hoje';
+  $('pilVer').hidden = !lendo;
+  $('pilLista').hidden = lendo;
+  $('pilBusca').hidden = _pilTab !== 'busca';
+  /* favoritar e "li" são ações sobre a pílula ABERTA: nas listas não têm alvo */
+  if (!lendo){ $('pilFav').hidden = true; $('pilLi').hidden = true; }
+  else _pilMostrar(_pilVendo);
+  if (!lendo) renderPilLista();
+}
+function renderPilLista(){
+  const cat = (_pilCatalogo && _pilCatalogo.pilulas) || [];
+  const corpo = $('pilCorpo');
+  if (!cat.length){ corpo.innerHTML = '<div class="leit-hint">catálogo ainda não baixou — puxe de novo com o Mac ligado</div>'; return; }
+  const linha = p => `<button class="lst-tit pil-item" data-pid="${escapeHtml(p.id)}">
+      <b>${escapeHtml(p.titulo)}</b><span>${escapeHtml(p.categoria || '')}</span></button>`;
+  if (_pilTab === 'busca'){
+    const q = cmNorm($('pilBusca').value.trim());
+    const achados = q ? cat.filter(p => cmNorm((p.titulo||'') + ' ' + (p.categoria||'') + ' ' + (p.texto||'')).includes(q)) : cat;
+    corpo.innerHTML = achados.map(linha).join('') || '<div class="leit-hint">nada com esse termo</div>';
+    return;
+  }
+  if (_pilTab === 'fav'){
+    const favs = pilFavoritos();
+    const lista = cat.filter(p => favs.indexOf(p.id) >= 0);
+    corpo.innerHTML = lista.map(linha).join('') || '<div class="leit-hint">nenhuma favorita ainda — abre uma e toca em ☆</div>';
+    return;
+  }
+  const hist = (_lastSnap && _lastSnap.pilula && Array.isArray(_lastSnap.pilula.historico)) ? _lastSnap.pilula.historico : [];
+  corpo.innerHTML = hist.map(h => {
+    const ids = Array.isArray(h.ids) ? h.ids : [];
+    const dia = (h.date || '').split('-').reverse().slice(0, 2).join('/');
+    return `<div class="pil-dia"><div class="pil-diadata">${escapeHtml(dia)}</div>${
+      ids.map(id => { const p = _pilAchar(id); return linha(p || { id, titulo:id, categoria:'' }); }).join('')}</div>`;
+  }).join('') || '<div class="leit-hint">nenhuma pílula lida ainda</div>';
+}
+async function openPilulaModal(){
   const pl = _lastSnap && _lastSnap.pilula; if (!pl) return;
-  $('pilCat').textContent = pl.categoria || 'saúde sexual';
-  $('pilTitulo').textContent = pl.titulo || '';
-  $('pilTexto').textContent = pl.texto || pl.claim || '';
-  $('pilApl').textContent = pl.aplicacao || '';
-  $('pilLi').hidden = !!pl.lida;
+  _pilTab = 'hoje'; $('pilBusca').value = '';
+  _pilMostrar(pl);
+  _pilPaint();
   $('pilulaModal').hidden = false;
+  try{ await garantirCatalogoPilulas(); if (_pilTab !== 'hoje') renderPilLista(); }catch(e){}
 }
 function marcarPilulaLida(){
   $('pilulaModal').hidden = true;
@@ -1350,6 +1455,87 @@ function marcarPilulaLida(){
   if (_lastSnap) render(_lastSnap);
   postEvent({ type:'pilula.read' }).then(schedulePrioRefresh)
     .catch(err => { delete _pending['pilula']; flashError(err.message || 'falha ao enviar'); if (_lastSnap) render(_lastSnap); });
+}
+function togglePilulaFav(){
+  const b = $('pilFav'), pid = b.dataset.pid;
+  if (!pid) return;
+  const ligado = b.dataset.on !== '1';
+  /* otimista: mexe na lista do snapshot em memória pra a aba "favoritas" refletir na hora */
+  if (_lastSnap && _lastSnap.pilula){
+    const f = Array.isArray(_lastSnap.pilula.favoritos) ? _lastSnap.pilula.favoritos.slice() : [];
+    const i = f.indexOf(pid);
+    if (ligado && i < 0) f.push(pid); else if (!ligado && i >= 0) f.splice(i, 1);
+    _lastSnap.pilula.favoritos = f;
+  }
+  b.textContent = ligado ? '★ favorita' : '☆ favoritar';
+  b.dataset.on = ligado ? '1' : '0';
+  postEvent({ type:'pilula.fav', pilulaId:pid, ligado }).then(schedulePrioRefresh)
+    .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+}
+
+/* PARIDADE-PLUGGY-2026-09-08 · pede o connect_token ao Mac e espera ele aparecer em _sync/reconnect.json.
+   O Mac gera o token pela API do Pluggy (curto, ~30 min) e grava lá; o gitSync empurra. Atenção ao
+   caminho: a RAIZ do repo é o `_sync/` do Mac, então aqui o arquivo é `reconnect.json`, sem prefixo.
+   Se o Mac estiver
+   desligado o token nunca vem — por isso o limite de espera e o recado honesto em vez de girar pra sempre. */
+async function reconectarBanco(itemId, nome){
+  if (!itemId) return;
+  flashError(`pedindo conexão do ${nome} ao Mac…`, 6000);
+  try { await postEvent({ type:'pluggy.reqtoken', itemId }); }
+  catch(err){ flashError(err.message || 'falha ao pedir'); return; }
+  const limite = Date.now() + 100000;      // ~100s: o Mac precisa puxar o inbox (15s) e empurrar de volta
+  while (Date.now() < limite){
+    await new Promise(r => setTimeout(r, 6000));
+    let rc = null;
+    try { rc = await fetchRepoFile('reconnect.json'); } catch(e){}
+    if (rc && rc.itemId === itemId && (Date.now()/1000 - (rc.ts || 0)) < 1800){
+      if (rc.erro){ flashError('o Mac não conseguiu gerar o token: ' + rc.erro, 7000); return; }
+      if (rc.token){ location.href = './connect.html?token=' + encodeURIComponent(rc.token) + '&item=' + encodeURIComponent(itemId); return; }
+    }
+  }
+  flashError('o token não chegou — o Mac precisa estar ligado e sincronizando', 7000);
+}
+
+/* PARIDADE-DIARIO-2026-09-08 · histórico. O app só editava HOJE; ver e corrigir um dia passado exigia
+   o Mac. Criar entrada nova continua sendo o caminho sagrado de fechar o dia (que dá XP), então aqui
+   só dá pra editar dia que já existe. */
+let _deCtx = null, _deMood = null;
+function diarioHist(){
+  return (_lastSnap && Array.isArray(_lastSnap.diarioHist)) ? _lastSnap.diarioHist.filter(Boolean) : [];
+}
+function openDiarioHist(){
+  const h = diarioHist();
+  $('dhN').textContent = `· ${h.length}`;
+  $('dhCorpo').innerHTML = h.map(e => {
+    const dia = (e.date || '').split('-').reverse().join('/');
+    const em = DAY_MOOD_EMOJI[e.mood] || '';
+    const resumo = e.wellDone || e.learning || e.capText || e.wouldChange || '';
+    return `<button class="lst-tit dh-item" data-dhdate="${escapeHtml(e.date || '')}">
+      <b>${escapeHtml(dia)} ${em}</b><span>${escapeHtml(resumo.slice(0, 90) || 'sem texto')}</span></button>`;
+  }).join('') || '<div class="leit-hint">nenhum dia registrado ainda</div>';
+  $('diarioHistModal').hidden = false;
+}
+function openDiarioEdit(date){
+  const e = diarioHist().find(x => x && x.date === date); if (!e) return;
+  _deCtx = date; _deMood = e.mood || null;
+  $('deTitulo').textContent = (date || '').split('-').reverse().join('/');
+  $('deNote').value = e.wellDone || ''; $('deLearn').value = e.learning || '';
+  $('deChange').value = e.wouldChange || ''; $('deCap').value = e.capText || '';
+  document.querySelectorAll('#deMoods button').forEach(b => b.classList.toggle('on', b.dataset.mood === _deMood));
+  $('diarioEditModal').hidden = false;
+}
+function saveDiarioEdit(){
+  if (!_deCtx) return;
+  const evt = { type:'daylog.edit', date:_deCtx, mood:_deMood || '',
+                wellDone:$('deNote').value.trim(), learning:$('deLearn').value.trim(),
+                wouldChange:$('deChange').value.trim(), capText:$('deCap').value.trim() };
+  const e = diarioHist().find(x => x && x.date === _deCtx);
+  if (e){ e.mood = evt.mood; e.wellDone = evt.wellDone; e.learning = evt.learning;
+          e.wouldChange = evt.wouldChange; e.capText = evt.capText; }
+  $('diarioEditModal').hidden = true; _deCtx = null;
+  openDiarioHist();
+  postEvent(evt).then(schedulePrioRefresh)
+    .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 
 let _notaEdit = null;   // null = nova · {id} = editando
@@ -1936,6 +2122,7 @@ const onCardClick = async (e) => {
   if (ev === 'card.expand'){ _cardExpanded[btn.dataset.key] = true; if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'card.collapse'){ delete _cardExpanded[btn.dataset.key]; if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'day.open'){ openDayModal(); return; }
+  if (ev === 'day.hist'){ openDiarioHist(); return; }               // PARIDADE-DIARIO-2026-09-08
   if (ev === 'refl.open'){ openReflModal(); return; }
   if (ev === 'pelvico.add' || ev === 'pelvico.undo'){   // PELVIC-COUNT-2026-07-23 · +1 / −1 sessão
     const add = ev === 'pelvico.add';
@@ -2031,6 +2218,10 @@ const onCardClick = async (e) => {
   // FINANCEIRO (local, aplica direto — funciona com o hub fechado)
   if (ev === 'fin.full'){ openFinFull(); return; }                                    // abre a tela cheia
   if (ev === 'ext.acc'){ const i = btn.dataset.i; _extratoOpen[i] = !_extratoOpen[i]; renderExtrato(); return; }
+  if (ev === 'pluggy.reconn'){         // PARIDADE-PLUGGY-2026-09-08
+    await reconectarBanco(btn.dataset.item, btn.dataset.nome || 'banco');
+    return;
+  }
   if (ev === 'pluggy.refresh'){        // pede um sync do Pluggy no Mac + re-busca (pega o snapshot fresco)
     btn.disabled = true; btn.textContent = 'puxando…';
     try { await postEvent({ type:'pluggy.sync' }); } catch(err){ flashError(err.message || 'falha ao pedir'); }
@@ -2144,6 +2335,36 @@ $('leitPage').addEventListener('keydown', e => { if (e.key === 'Enter') saveLeit
 /* MENTE-2026-09-02 · pílula / notas / terapia / vícios */
 $('pilFechar').addEventListener('click', () => { $('pilulaModal').hidden = true; });
 $('pilLi').addEventListener('click', marcarPilulaLida);
+/* PARIDADE-PILULA-2026-09-08 · abas, busca, favoritar, e abrir uma pílula da lista */
+$('pilFav').addEventListener('click', togglePilulaFav);
+$('pilTabs').addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  _pilTab = b.dataset.pt;
+  if (_pilTab !== 'hoje'){ try{ await garantirCatalogoPilulas(); }catch(err){} }
+  _pilPaint();
+  if (_pilTab === 'busca') setTimeout(() => { try{ $('pilBusca').focus(); }catch(err){} }, 60);
+});
+$('pilBusca').addEventListener('input', () => { if (_pilTab === 'busca') renderPilLista(); });
+$('pilCorpo').addEventListener('click', e => {
+  const b = e.target.closest('[data-pid]'); if (!b) return;
+  const pl = _pilAchar(b.dataset.pid);
+  if (!pl){ flashError('essa pílula não está no catálogo baixado'); return; }
+  _pilTab = 'hoje'; _pilMostrar(pl); _pilPaint();
+});
+/* PARIDADE-DIARIO-2026-09-08 · histórico e edição de um dia passado */
+$('dhFechar').addEventListener('click', () => { $('diarioHistModal').hidden = true; });
+$('diarioHistModal').addEventListener('click', e => { if (e.target === $('diarioHistModal')) $('diarioHistModal').hidden = true; });
+$('dhCorpo').addEventListener('click', e => {
+  const b = e.target.closest('[data-dhdate]'); if (b) openDiarioEdit(b.dataset.dhdate);
+});
+$('deMoods').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  _deMood = b.dataset.mood;
+  document.querySelectorAll('#deMoods button').forEach(x => x.classList.toggle('on', x.dataset.mood === _deMood));
+});
+$('deCancel').addEventListener('click', () => { $('diarioEditModal').hidden = true; _deCtx = null; });
+$('deSave').addEventListener('click', saveDiarioEdit);
+$('diarioEditModal').addEventListener('click', e => { if (e.target === $('diarioEditModal')){ $('diarioEditModal').hidden = true; _deCtx = null; } });
 $('pilulaModal').addEventListener('click', e => { if (e.target === $('pilulaModal')) $('pilulaModal').hidden = true; });
 $('notasFechar').addEventListener('click', () => { $('notasModal').hidden = true; });
 $('notaNova').addEventListener('click', () => openNotaEdit(null));
