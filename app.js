@@ -10,6 +10,7 @@ const $ = id => document.getElementById(id);
 const CFG_KEY = 'companheiro.sync.cfg';
 const SNAP_CACHE = 'companheiro.sync.lastSnap';
 const POLL_MS = 25000;
+let _flashTimer = null, _flashOrig = null;   // LEITURA-FIX-2026-09-08 · declarado no topo: renderFreshness (bem acima) o consulta
 let _pending = {};        // otimista: mapa key→alvo(bool) aguardando o Mac confirmar no snapshot
 let _prioTab = localStorage.getItem('companheiro.prioTab') || 'todos';   // filtro local (não sincroniza)
 let _showHist = false;    // histórico de prioridades expandido?
@@ -1005,6 +1006,11 @@ function renderComerModalList(){
 let _comerModalQ = '';
 
 function renderFreshness(snap){
+  /* LEITURA-FIX-2026-09-08 · o aviso do flashError vivia 3s, mas QUALQUER render no meio o apagava
+     na hora (renderFreshness escreve direto no mesmo elemento). Resultado: mensagens que confirmam uma
+     ação — "adicionado em cânone", "já está na lista" — sumiam antes de serem lidas, e a ação parecia
+     não ter acontecido. Enquanto há flash na tela, o frescor espera a vez. */
+  if (_flashTimer) return;
   const el = $('freshness');
   // FRESCOR-2026-08-24 · avisa quando o Mac não publica há muito (antes mostrava só "atualizado 14:32",
   // e um snapshot de 3 dias parecia fresco).
@@ -1085,7 +1091,6 @@ function showError(msg){ $('cards').innerHTML = `<div class="state-msg err">${es
 /* FLASH-2026-08-26 · dois erros dentro da mesma janela de 3s se aninhavam: o segundo capturava a MENSAGEM
    DE ERRO do primeiro como "texto original" e restaurava ela — a mensagem de erro ficava grudada no lugar
    do frescor pra sempre. Agora só a primeira chamada guarda o original e o timer é único. */
-let _flashTimer = null, _flashOrig = null;
 function flashError(msg){
   const f = $('freshness'); if (!f) return;
   /* AUDIT-2026-09-02 · guarda/restaura innerHTML: o aviso de defasagem ("⚠ sem sincronizar") tem markup
