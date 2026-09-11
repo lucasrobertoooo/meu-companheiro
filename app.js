@@ -351,22 +351,27 @@ function renderDescanso(snap){
   const row = $('descansoRow'); if (!row) return;
   const silenciado = !!d.ativo && d.motivo === 'silenciado hoje';
   const descanso = !!d.ativo && d.motivo === 'modo descanso';
+  /* REUNIAO-2026-09-11 · "em reunião" = ligado na mão no Mac (dá pra liberar daqui);
+     "em chamada" = o detector achou uma chamada (liberar daqui não adianta, ele religa) */
+  const reuniao = !!d.ativo && d.motivo === 'em reunião';
+  const chamada = !!d.ativo && d.motivo === 'em chamada';
   row.hidden = false;
-  $('descansoTxt').textContent = d.ativo ? `🔕 ${d.motivo}` : '🔔 lembretes ligados';
+  $('descansoTxt').textContent = d.ativo ? `${chamada || reuniao ? '🤫' : '🔕'} ${d.motivo}` : '🔔 lembretes ligados';
   const b = $('descansoBtn');
-  /* fim de semana automático não tem botão de desligar aqui: é regra do Mac, não um interruptor */
-  if (d.ativo && !silenciado && !descanso){ b.hidden = true; return; }
+  /* fim de semana automático e chamada detectada não têm botão aqui: são regra do Mac, não interruptor */
+  if (d.ativo && !silenciado && !descanso && !reuniao){ b.hidden = true; return; }
   b.hidden = false;
-  b.textContent = silenciado ? 'reativar' : (descanso ? 'sair do descanso' : 'silenciar hoje');
-  b.dataset.alvo = descanso ? 'rest' : 'snooze';
-  b.dataset.ligado = (silenciado || descanso) ? '0' : '1';
+  b.textContent = reuniao ? 'sair da reunião' : (silenciado ? 'reativar' : (descanso ? 'sair do descanso' : 'silenciar hoje'));
+  b.dataset.alvo = reuniao ? 'reuniao' : (descanso ? 'rest' : 'snooze');
+  b.dataset.ligado = (silenciado || descanso || reuniao) ? '0' : '1';
 }
 function toggleDescanso(){
   const b = $('descansoBtn');
   const alvo = b.dataset.alvo || 'snooze', ligado = b.dataset.ligado === '1';
   $('descansoTxt').textContent = ligado ? '🔕 silenciado hoje' : '🔔 lembretes ligados';
   b.hidden = true;
-  postEvent({ type:'descanso.set', alvo, ligado }).then(schedulePrioRefresh)
+  const evt = alvo === 'reuniao' ? { type:'reuniao.set', ligado } : { type:'descanso.set', alvo, ligado };
+  postEvent(evt).then(schedulePrioRefresh)
     .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
 }
 
