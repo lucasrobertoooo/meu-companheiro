@@ -593,7 +593,9 @@ button.pil-item span,button.dh-item span{font-size:12px;color:var(--muted)}
 /* AVISO-VISIVEL-2026-09-09 · toast acima de tudo. O flashError escrevia no #freshness (z-index 5) e
    TODO modal é z-index 100: a validação existia no DOM e ficava atrás do modal. O usuário apertava
    salvar e não acontecia nada visível. É a raiz do "clico e nada acontece" em 12 formulários. */
-#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:28px;z-index:2000;max-width:min(92vw,420px);
+/* SAFE-AREA-2026-09-14 · `position:fixed` não herda o padding-bottom do body, então o toast caía por
+   cima do indicador de início. Em tela sem indicador, o env() vale 0 e nada muda. */
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(28px + env(safe-area-inset-bottom));z-index:2000;max-width:min(92vw,420px);
   background:var(--paper-2);color:var(--ink);border:1px solid var(--line);border-radius:12px;
   padding:11px 15px;font-size:13.5px;line-height:1.4;box-shadow:0 10px 28px rgba(0,0,0,.55);
   opacity:0;pointer-events:none;transition:opacity .18s ease}
@@ -610,3 +612,12 @@ button.pil-item span,button.dh-item span{font-size:12px;color:var(--muted)}
 .ct-passos{margin-top:8px;border-top:1px dashed var(--line);padding-top:7px}
 .ct-passo{font-size:12.5px;color:var(--muted);line-height:1.45;margin-top:3px}
 .ct-passo small{display:block;font-size:11px;opacity:.75}
+/* PUSH-MORTO-2026-09-14 */
+/* fixo no rodapé, mas com o `body` ganhando folga equivalente (ver .tem-push-falha) pra a faixa
+   nunca ficar cobrindo o último card de forma permanente. */
+.push-falha{position:fixed;left:12px;right:12px;z-index:1500;
+  bottom:calc(14px + env(safe-area-inset-bottom));
+  background:#2a1a16;color:#e08a6f;border:1px solid rgba(224,138,111,.45);border-radius:12px;
+  padding:10px 13px;font-size:12.5px;line-height:1.45;display:flex;align-items:center;gap:10px;justify-content:space-between}
+.push-falha .mini-btn{flex:none}
+body.tem-push-falha .wrap{padding-bottom:132px}

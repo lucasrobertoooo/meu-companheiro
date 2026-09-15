@@ -1170,6 +1170,8 @@ function render(snap){
   try{ renderToday(snap); }catch(e){}
   try{ renderCards(snap); }catch(e){}
   try{ renderAvisosDoMac(snap); }catch(e){}    // CANAL-DE-VOLTA-2026-09-08
+  try{ renderPushFalha(snap); }catch(e){}      // PUSH-MORTO-2026-09-14
+  try{ atualizarBadge(snap); }catch(e){}       // BADGE-2026-09-14
   try{ if (!$('finFull').hidden) renderFinFull(); }catch(e){}   // mantém a tela cheia em sincronia
   if (!$('extratoFull').hidden) renderExtrato();
   /* AUDIT2-2026-09-02 (B6) · modais abertos ficavam com DOM defasado até a próxima interação */
@@ -1291,6 +1293,64 @@ function renderAvisosDoMac(snap){
   _avisoDrenar();
 }
 
+/* PUSH-MORTO-2026-09-14 · quando a assinatura deste aparelho morre, o Mac recebe 410 da Apple e grava
+   isso; aqui vira uma faixa que pede a reativação, que é a única coisa que resolve. Antes o push
+   simplesmente parava de chegar e nada no sistema dizia nada — e o Mac ainda marcava "enviei". */
+function renderPushFalha(snap){
+  const el = $('pushFalha'); if (!el) return;
+  const f = snap && snap.pushFalha;
+  if (!f || !f.motivo){ el.hidden = true; document.body.classList.remove('tem-push-falha'); return; }
+  el.hidden = false;
+  document.body.classList.add('tem-push-falha');   /* abre folga no fim da página pra não cobrir card */
+  el.innerHTML = `⚠ Notificações paradas: ${escapeHtml(f.motivo)} <button class="mini-btn" data-ev="push.reativar">reativar</button>`;
+}
+
+/* BADGE-2026-09-14 · o app nunca usou o badge do ícone. Num iPhone instalado na tela inicial isso é o
+   aviso mais barato que existe: ele vê o número sem abrir nada e sem depender de push chegar.
+   Só conta o que ainda falta HOJE; zerado, o badge some. */
+async function atualizarBadge(snap){
+  if (!('setAppBadge' in navigator)) return;
+  try{
+    const d = (snap && snap.doneToday) || {};
+    let n = 0;
+    ['agua','comer','remedios','skincare','meditacao','leitura','mobilidade','pelvico'].forEach(k => { if (d[k] === false) n++; });
+    const pr = snap && snap.prioridades;
+    if (pr && typeof pr.pending === 'number') n += pr.pending;
+    if (n > 0) await navigator.setAppBadge(n); else await navigator.clearAppBadge();
+  }catch(e){}
+}
+
+/* ASSINATURA-2026-09-14 · o service worker reassina sozinho quando o navegador invalida a inscrição
+   (trocou de aparelho, reinstalou, limpou dados), mas ele não tem o token do GitHub — esse vive aqui.
+   Então ele deixa a assinatura nova num cache e a página empurra na primeira abertura. Sem isto, a
+   reassinatura acontecia e morria no próprio aparelho. */
+async function subirAssinaturaPendente(){
+  try{
+    const c = await caches.open('push-pendente');
+    const r = await c.match('/nova-assinatura');
+    if (!r) return;
+    const sub = await r.json();
+    const cfg = getCfg(); if (!cfg || !cfg.repo || !cfg.pat) return;   // sem token: tenta na próxima
+    const [owner, repo] = cfg.repo.split('/');
+    const path = 'push-subscription.json';
+    const content = btoa(unescape(encodeURIComponent(JSON.stringify({ subscription: sub, tz: 'America/Sao_Paulo', updated: todayStr() }, null, 2))));
+    let sha = null;
+    try{
+      const g = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=main`,
+        { headers:{ Authorization:`Bearer ${cfg.pat}`, Accept:'application/vnd.github+json' }, cache:'no-store' });
+      if (g.ok) sha = (await g.json()).sha;
+    }catch(e){}
+    const put = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+      method:'PUT', headers:{ Authorization:`Bearer ${cfg.pat}`, Accept:'application/vnd.github+json' },
+      body: JSON.stringify({ message:'push subscription (reassinada pelo aparelho)', content, branch:'main', sha }),
+    });
+    if (put.ok) await c.delete('/nova-assinatura');
+  }catch(e){}
+}
+try{ navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', ev => {
+  if (ev && ev.data && ev.data.tipo === 'assinatura-nova') subirAssinaturaPendente();
+}); }catch(e){}
+
 /* ---------- push nativo (iOS 16.4+ · precisa do app instalado na tela inicial) ---------- */
 const VAPID_PUBLIC = 'BMxE9r6DrUygHVJkhr2sDXSyeguI7zzeDeunLkOgY2qZr7lS52logWdLOCblLdmuiFm6TweBneHldcQ_V4Wfhag';
 function urlB64ToUint8(b64){
@@ -1313,8 +1373,14 @@ async function enablePush(){
     const perm = await Notification.requestPermission();
     if (perm !== 'granted'){ set('err', 'Permissão negada. Ative em Ajustes → Notificações → Companheiro.'); return; }
     const reg = await navigator.serviceWorker.ready;
-    let sub = await reg.pushManager.getSubscription();
-    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(VAPID_PUBLIC) });
+    /* APARELHO-NOVO-2026-09-14 · era `if (!sub) subscribe(...)`, ou seja: existindo assinatura, ele
+       REENVIAVA a mesma. Num aparelho novo com dados restaurados isso republica o endereço do aparelho
+       VELHO, e apertar "ativar notificações" não conserta nada — que é exatamente o caso de quem acabou
+       de trocar de iPhone. Agora a antiga é cancelada e uma nova é criada, sempre: assim o endereço
+       publicado é garantidamente o DESTE aparelho. */
+    const antiga = await reg.pushManager.getSubscription();
+    if (antiga){ try{ await antiga.unsubscribe(); }catch(e){} }
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(VAPID_PUBLIC) });
     const [owner, repo] = cfg.repo.split('/');
     const path = 'push-subscription.json';
     const content = btoa(unescape(encodeURIComponent(JSON.stringify({ subscription: sub.toJSON(), tz: 'America/Sao_Paulo', updated: todayStr() }, null, 2))));
@@ -1328,7 +1394,9 @@ async function enablePush(){
       body: JSON.stringify({ message:'push subscription', content, branch:'main', sha }),
     });
     if (!put.ok){ set('err', 'Falha ao salvar inscrição (' + put.status + ').'); return; }
-    set('ok', 'Notificações ativadas ✓ — feche o app e peça um teste.');
+    /* assinatura nova no ar: limpa o aviso de push morto, se havia */
+    try{ if (_lastSnap && _lastSnap.pushFalha) delete _lastSnap.pushFalha; render(_lastSnap); }catch(e){}
+    set('ok', 'Notificações ativadas neste aparelho ✓ — feche o app e peça um teste.');
   }catch(err){ set('err', (err && err.message) || 'falhou'); }
 }
 
@@ -2216,6 +2284,7 @@ const onCardClick = async (e) => {
   if (ev === 'card.collapse'){ delete _cardExpanded[btn.dataset.key]; if (_lastSnap) render(_lastSnap); return; }
   if (ev === 'day.open'){ openDayModal(); return; }
   if (ev === 'day.hist'){ openDiarioHist(); return; }               // PARIDADE-DIARIO-2026-09-08
+  if (ev === 'push.reativar'){ openModal(); setTimeout(() => { try{ enablePush(); }catch(e){} }, 300); return; }
   if (ev === 'refl.open'){ openReflModal(); return; }
   if (ev === 'pelvico.add' || ev === 'pelvico.undo'){   // PELVIC-COUNT-2026-07-23 · +1 / −1 sessão
     const add = ev === 'pelvico.add';

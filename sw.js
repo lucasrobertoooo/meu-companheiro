@@ -1,7 +1,7 @@
 // Service worker — cacheia a CASCA do app (offline). NÃO cacheia os DADOS
 // (snapshot.json / GitHub API) — esses são sempre rede; o app.js guarda o último
 // snapshot em localStorage pra exibir offline.
-const CACHE = 'companheiro-shell-v47';
+const CACHE = 'companheiro-shell-v48';
 const SHELL = [
   './', './index.html', './style.css', './app.js', './creature-art.js',
   './_shared/regras.js', './skincare-catalog.js',   // CORE-2026-08-24 · faltavam no cache offline
@@ -22,8 +22,13 @@ self.addEventListener('activate', e => {
 // PUSH-2026-07-15 · notificações REAIS (chegam com o app fechado quando instalado na tela inicial · iOS 16.4+).
 // O sistema acorda o SW e dispara o push event mesmo sem o app rodando — diferente de notificação da página.
 self.addEventListener('push', e => {
+  /* ROBUSTEZ-2026-09-14 · o parse ficava FORA do try do resto: um payload `null` (JSON válido) fazia o
+     handler morrer antes do showNotification. Push recebido e não mostrado é exatamente o que o iOS
+     pune revogando a permissão do site. Agora tudo que pode falhar está dentro, e sempre sai alguma
+     notificação. */
   let data = {};
-  try { data = e.data ? e.data.json() : {}; } catch (err) { data = { body: e.data ? e.data.text() : '' }; }
+  try { data = e.data ? (e.data.json() || {}) : {}; } catch (err) { try { data = { body: e.data ? e.data.text() : '' }; } catch (e2) { data = {}; } }
+  if (typeof data !== 'object' || data === null) data = {};
   const title = data.title || 'Companheiro';
   e.waitUntil(self.registration.showNotification(title, {
     body: data.body || '',
@@ -34,6 +39,36 @@ self.addEventListener('push', e => {
     data: { url: data.url || './' },
   }));
 });
+/* ASSINATURA-2026-09-14 · trocar de aparelho, reinstalar o PWA ou limpar dados do site INVALIDA a
+   assinatura de push, e sem este handler ela só morria: o Mac seguia mandando pro endereço velho e
+   recebendo 410, e nenhum lado sabia. O navegador dispara este evento quando isso acontece; aqui a
+   gente reassina na hora e guarda pra página empurrar ao repo no próximo boot. O `applicationServerKey`
+   vem da assinatura antiga quando ela existe, senão da chave embutida (mesma VAPID pública do app). */
+const VAPID_PUB_SW = 'BMxE9r6DrUygHVJkhr2sDXSyeguI7zzeDeunLkOgY2qZr7lS52logWdLOCblLdmuiFm6TweBneHldcQ_V4Wfhag';
+function b64ToU8(b64){
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const s = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(s), arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+self.addEventListener('pushsubscriptionchange', e => {
+  e.waitUntil((async () => {
+    try{
+      const antiga = e.oldSubscription || await self.registration.pushManager.getSubscription();
+      const chave = (antiga && antiga.options && antiga.options.applicationServerKey) || b64ToU8(VAPID_PUB_SW);
+      const nova = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chave });
+      /* o SW não tem o token do GitHub (ele vive no localStorage da página), então deixa a assinatura
+         nova num cache e a página empurra assim que abrir. */
+      const c = await caches.open('push-pendente');
+      await c.put('/nova-assinatura', new Response(JSON.stringify(nova), { headers: { 'Content-Type': 'application/json' } }));
+      /* e avisa qualquer aba aberta agora, pro caso de o app estar em primeiro plano */
+      const cls = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      cls.forEach(cl => { try{ cl.postMessage({ tipo: 'assinatura-nova' }); }catch(err){} });
+    }catch(err){ /* sem o que fazer aqui; a página tenta de novo no boot */ }
+  })());
+});
+
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const url = (e.notification.data && e.notification.data.url) || './';

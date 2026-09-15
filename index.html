@@ -374,6 +374,9 @@
        impossível pelo celular. Aqui "fin" é de FINalizados; o prefixo agora é `livrosFin`. -->
   <!-- AVISO-VISIVEL-2026-09-09 · toast fora de qualquer contêiner, pra aparecer por cima dos modais -->
   <div id="toast" role="status" aria-live="polite"></div>
+  <!-- PUSH-MORTO-2026-09-14 · trocar de aparelho invalida a assinatura de push. Sem esta faixa, o
+       push parava de chegar e nada no sistema dizia nada. -->
+  <div id="pushFalha" class="push-falha" hidden></div>
   <div class="modal-backdrop" id="livrosFinModal" hidden>
     <div class="modal modal-tall">
       <h3>Terminados <span class="lista-n" id="livrosFinN"></span></h3>
