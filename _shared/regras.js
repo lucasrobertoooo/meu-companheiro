@@ -162,7 +162,8 @@
     }
     return 'ativa';
   }
-  var DIMS_VITALIDADE = ['corpo', 'mente', 'reflexao', 'agua', 'cultura'];
+  /* CRIATURA-FASE6-2026-11-17 · mente/reflexão eram de módulos que saíram; viraram pausa e hoje */
+  var DIMS_VITALIDADE = ['corpo', 'agua', 'pausa', 'hoje', 'cultura'];
   function contarVitalidade(dims) {
     dims = dims || {};
     var lit = 0;

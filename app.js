@@ -53,7 +53,6 @@ const icon = n => ICONS[n] || '';
 const TODAY_MODULES = [
   { key:'agua',       lbl:'Água' },
   { key:'pelvico',    lbl:'Pélvico' },
-  { key:'meditacao',  lbl:'Meditação' },
   { key:'leitura',    lbl:'Leitura' },
   { key:'mobilidade', lbl:'Mobilidade' },
   { key:'remedios',   lbl:'Remédios' },
@@ -326,7 +325,10 @@ function renderHero(c){
                 fome:'com fome — dias sem treino', escondido:'se escondeu — faz tempo',
                 neutro:'à espreita' }[c.moodKey] || '';
   $('crName').textContent = c.name || 'Companheiro';
-  $('crLevel').textContent = `${c.levelName || ''} · nível ${c.level ?? '—'}`;
+  /* REFORMULACAO-2026-11-17 · fase 6: XP, nível, dias seguidos e recorde saíram da frente (igual ao Mac).
+     A forma da criatura continua mudando com o XP por dentro. */
+  $('crLevel').textContent = c.levelName || '';
+  try{ document.querySelector('#hero .xpbar').hidden = true; $('xpnum').hidden = true; }catch(e){}
   const pct = Math.round((c.levelProgress || 0) * 100);
   $('xpfill').style.width = pct + '%';
   /* GUARDA-2026-09-09 · a linha de cima já usa `c.level ?? '—'`; aqui faltava, e um snapshot sem `xp`
@@ -336,8 +338,6 @@ function renderHero(c){
     : (c.xpToNextLevel > 0 ? `${_xp} / ${_xp + c.xpToNextLevel} xp` : `${_xp} xp · máximo`);
   $('crCap').textContent = c.cap || '';
   const chips = [];
-  if (c.streak >= 1) chips.push(`<span class="chip hot">${icon('flame')} ${c.streak} ${c.streak===1?'dia':'dias'}</span>`);
-  if (c.best > 1)   chips.push(`<span class="chip">recorde ${c.best}d</span>`);
   if (c.prestige && c.prestige !== 'normal') chips.push(`<span class="chip gold">✦ ${c.prestige}</span>`);
   if (c.restDay)    chips.push(`<span class="chip">descanso</span>`);
   $('chips').innerHTML = chips.join('');
@@ -578,6 +578,27 @@ function prioDragEnd(){
 }
 
 // corpo do card de Prioridades: tabs (filtro local) + itens (toggle/nota/arrastar) + histórico. PRIORIDADES-EDIT-F.A.
+/* HOJE-2026-11-17 · fase 4 no celular: a próxima da Central (fila do Claude) em cima das suas prioridades,
+   com feita ✓ / pular ↷ e "confirmar" o dia (cala o aviso das 10h30 no Mac). */
+function hojeBlock(){
+  const h = _lastSnap && _lastSnap.hoje; if (!h) return '';
+  const fila = Array.isArray(h.fila) ? h.fila : [], top = fila[0];
+  let out = '<div class="hoje-prox">';
+  if (top){
+    out += `<div class="hoje-lbl">próxima</div><div class="hoje-t">${escapeHtml(top.t || '')}</div>` +
+      ((top.frente || top.porque) ? `<div class="hoje-sub">${escapeHtml([top.frente, top.porque].filter(Boolean).join(' · '))}</div>` : '') +
+      (fila[1] ? `<div class="hoje-sub">depois: ${escapeHtml(fila[1].t || '')}</div>` : '') +
+      `<div class="pv-btns"><button class="mark-btn" data-ev="central.feita" data-t="${escapeHtml(top.t || '')}">feita ✓</button>` +
+      (fila.length > 1 ? `<button class="mark-btn ghost-btn" data-ev="central.pular" data-t="${escapeHtml(top.t || '')}">pular ↷</button>` : '') + '</div>';
+  } else {
+    out += `<div class="hoje-sub">sem próxima definida · pede ao Claude: “atualiza a próxima da Central”</div>`;
+  }
+  out += '</div>';
+  if (!h.confirmado && (top || ((_lastSnap.prioridades || {}).pending > 0)))
+    out += `<button class="mark-btn ghost-btn hoje-ok" data-ev="hoje.confirmar">é isso pra hoje · confirmar ✓</button>`;
+  else if (h.confirmado) out += `<div class="hoje-sub hoje-okd">dia confirmado ✓</div>`;
+  return out;
+}
 function prioBody(pr){
   const items = pr.itens || [];
   const tab = _prioTab;
@@ -604,7 +625,7 @@ function prioBody(pr){
       (day.itens || []).map(h => `<div class="prio-histitem">${icon('check')} ${escapeHtml(h.text)}</div>`).join('')
     ).join('') + '</div>';
   }
-  return `<div class="ptabs">${tabs}</div><div class="prio-list">${rows}</div>${addBtn}${histBtn}${histSec}`;
+  return `${hojeBlock()}<div class="ptabs">${tabs}</div><div class="prio-list">${rows}</div>${addBtn}${histBtn}${histSec}`;
 }
 
 /* ---------- financeiro: home enxuta + TELA CHEIA (navegação de meses, categorias, edição). FIN-MOBILE-FULL-2026-07-15 ---------- */
@@ -825,6 +846,9 @@ function optimisticPelvic(delta){
 }
 // LAYOUT-DIA-2026-07-15 · monta os cards de hábito como descritores {done} e ordena:
 // pendentes (abertos, topo) → concluídos (minimizados, embaixo) → Financeiro (ferramenta, fim).
+/* REFORMULACAO-2026-11-17 · cards que saíram do widget. O Mac também parou de mandar os dados deles no
+   snapshot (companheiro_sync.lua); esta lista cobre o que ainda chega por outro caminho. */
+const CARDS_FORA = { med:true, mente:true };
 function renderCards(snap){
   const daily = [];
 
@@ -872,7 +896,7 @@ function renderCards(snap){
   // PRIORIDADES — done só quando não sobra pendente. Toggle já desmarca por item.
   if (snap.prioridades){
     const pr = snap.prioridades, done = (pr.total > 0 && pr.pending === 0);
-    daily.push({ key:'prio', title:'Prioridades', ic:icon('prioridades'), badge:`${pr.pending ?? 0}/${pr.total ?? 0}`   /* GUARDA-2026-09-09 · imprimia "undefined/undefined" */, body:prioBody(pr), done, mini:'tudo feito' });
+    daily.push({ key:'prio', title:'Hoje', ic:icon('prioridades'), badge:`${pr.pending ?? 0}/${pr.total ?? 0}`   /* GUARDA-2026-09-09 · imprimia "undefined/undefined" */, body:prioBody(pr), done, mini:'tudo feito' });
   }
 
   // SKINCARE — done quando manhã+noite completas. Toggle já desfaz (rotina e passo).
@@ -898,7 +922,8 @@ function renderCards(snap){
   }
 
   // MEDITAÇÃO — toggle: marca / desfaz (marcou por engano).
-  if (snap.doneToday){
+  // REFORMULACAO-2026-11-17 · saiu do widget (a respiração vive dentro da pausa no Mac). Pra voltar: CARDS_FORA.
+  if (snap.doneToday && !CARDS_FORA.med){
     const done = !!snap.doneToday.meditacao, pend = pendingFor('meditacao', done);
     const lbl = pend ? 'enviando…' : (done ? 'atenção feita hoje ✓ · desfazer' : 'marcar atenção do dia');
     daily.push({ key:'med', title:'Atenção / Meditação', ic:icon('meditacao'), badge:'',
@@ -1058,8 +1083,21 @@ function renderCards(snap){
     parts.push(card('Gastos', '💳', fmtMes(g.mes||''), body));
   }
 
+  // COLECOES-2026-11-17 · fase 3 no celular: compras, materiais, músicas, notas e livros numa busca só.
+  if (snap.colecoes || snap.musicas || snap.notas){
+    const it = (snap.colecoes && snap.colecoes.itens) || [];
+    const nC = it.filter(x => x.lista === 'compras' && !x.feito).length;
+    const nN = Array.isArray(snap.notas) ? snap.notas.length : 0;
+    const nM = (snap.musicas && Array.isArray(snap.musicas.itens)) ? snap.musicas.itens.filter(m => m && !m.ouvido).length : 0;
+    parts.push(card('Coleções', '◈', nC ? `${nC} pra comprar` : '',
+      `<div class="col-home"><button class="mark-btn" data-ev="col.abrir" data-lista="compras">🛒 compras${nC ? ` (${nC})` : ''}</button>` +
+      `<button class="mark-btn ghost-btn" data-ev="col.abrir" data-lista="tudo">🔎 buscar em tudo</button></div>` +
+      `<div class="book-acts"><button class="mini-btn" data-ev="mente.notas">🗒 notas (${nN})</button>` +
+      `<button class="mini-btn" data-ev="mente.musicas">🎵 músicas (${nM})</button></div>`));
+  }
   // MENTE-2026-09-02 · notas / terapia / vícios — ferramentas de apoio, sem estado de "concluído"
-  if (snap.notas || snap.terapia || snap.vicios || snap.musicas){
+  // REFORMULACAO-2026-11-17 · terapia e vícios saíram do widget; notas e músicas foram pra Coleções.
+  if (!CARDS_FORA.mente && (snap.notas || snap.terapia || snap.vicios || snap.musicas)){
     const nN = Array.isArray(snap.notas) ? snap.notas.length : 0;
     const tR = (snap.terapia && snap.terapia.registros) || 0;
     const vH = (snap.vicios && snap.vicios.haltsHoje) || 0;
@@ -1176,6 +1214,7 @@ function render(snap){
   if (!$('extratoFull').hidden) renderExtrato();
   /* AUDIT2-2026-09-02 (B6) · modais abertos ficavam com DOM defasado até a próxima interação */
   try{ if (!$('musModal').hidden) renderMusModal(); }catch(e){}
+  try{ if (!$('colModal').hidden) renderColModal(); }catch(e){}   // COLECOES-2026-11-17
   try{ if (!$('notasModal').hidden) openNotasModal(); }catch(e){}
   try{ if (!$('listaModal').hidden) openListaModal(); }catch(e){}
   /* ROLLBACK-2026-09-09 · pílula e destaques ficavam de fora: a estrela seguia virada e o destaque
@@ -1890,6 +1929,66 @@ function musAddPhone(){
   $('musTitulo').value = ''; $('musArtista').value = ''; $('musTitulo').focus();
 }
 
+/* ---------- COLECOES-2026-11-17 · uma janela com busca: compras e materiais (marcar/tirar/adicionar daqui),
+   músicas, notas e livros (busca; editar segue nas telas deles). ---------- */
+let _colTab = 'compras';
+const COL_LBL = { compras:'compras', materiais:'materiais', musicas:'músicas', notas:'notas', livros:'livros' };
+function colNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function colItens(){
+  const s = _lastSnap || {}, out = [];
+  ((s.colecoes && s.colecoes.itens) || []).forEach(x => out.push(x));
+  ((s.musicas && s.musicas.itens) || []).filter(Boolean).forEach(m => out.push({ id:m.id, lista:'musicas', titulo:m.titulo||'', sub:m.artista||'', feito:!!m.ouvido }));
+  (Array.isArray(s.notas) ? s.notas : []).forEach(n => out.push({ id:n.id, lista:'notas', titulo:n.title||'(sem título)', sub:String(n.body||'').replace(/\s+/g,' ').slice(0,120), feito:false, ro:true }));
+  const L = s.leituraLista || {};
+  (Array.isArray(L.toRead) ? L.toRead : []).forEach(b => b && out.push({ id:b.id||b.tId||b.title, lista:'livros', titulo:b.title||'', sub:[b.author,'quero ler'].filter(Boolean).join(' · '), feito:false, ro:true }));
+  ((s.leitura && s.leitura.books) || []).filter(Boolean).forEach(b => out.push({ id:b.id, lista:'livros', titulo:b.title||'', sub:[b.author,'lendo agora'].filter(Boolean).join(' · '), feito:false, ro:true }));
+  return out;
+}
+function openColModal(lista){
+  _colTab = lista || 'compras';
+  $('colBusca').value = ''; $('colNovo').value = '';
+  renderColModal(); $('colModal').hidden = false;
+}
+function renderColModal(){
+  const todos = colItens(), q = colNorm($('colBusca').value.trim());
+  const abas = ['compras','materiais','tudo'];
+  $('colTabs').innerHTML = abas.map(t => `<button data-ct="${t}" class="${t===_colTab?'on':''}">${t==='tudo'?'tudo':COL_LBL[t]}</button>`).join('');
+  let lista = q ? todos.filter(x => colNorm(x.titulo + ' ' + x.sub).includes(q))
+                : todos.filter(x => _colTab === 'tudo' ? (x.lista === 'compras' || x.lista === 'materiais') : x.lista === _colTab);
+  if (!q && _colTab !== 'tudo') lista.sort((a,b) => (a.feito?1:0) - (b.feito?1:0));
+  const nC = todos.filter(x => x.lista === 'compras' && !x.feito).length;
+  $('colN').textContent = nC ? `· ${nC} pra comprar` : '';
+  const podeMexer = x => x.lista === 'compras' || x.lista === 'materiais';
+  $('colLista').innerHTML = lista.slice(0, 200).map(x => `
+    <div class="mus-row ${x.feito ? 'col-feito' : ''}">
+      ${podeMexer(x) ? `<button class="mus-tg" data-cid="${escapeHtml(x.id)}" data-cl="${x.lista}" data-cf="${x.feito?1:0}">${x.feito ? '↩' : '✓'}</button>` : `<span class="mus-ic">${({musicas:'🎵',notas:'🗒',livros:'📖'})[x.lista] || '·'}</span>`}
+      <span class="mus-nm"><b>${escapeHtml(x.titulo)}</b>${x.sub ? `<span>${escapeHtml(x.sub)}</span>` : ''}${(q || _colTab === 'tudo') ? `<span>${COL_LBL[x.lista] || ''}</span>` : ''}</span>
+      ${podeMexer(x) ? `<button class="mus-rm" data-crm="${escapeHtml(x.id)}" data-cl="${x.lista}">✕</button>` : ''}
+    </div>`).join('') || `<div class="leit-hint">${q ? 'nada encontrado' : 'lista vazia'}</div>`;
+  $('colAddRow').hidden = !!q || _colTab === 'tudo';
+  $('colNovo').placeholder = _colTab === 'materiais' ? 'material - detalhe' : 'o que comprar - quanto';
+}
+function colAdd(){
+  const raw = $('colNovo').value.trim(); if (!raw){ flashError('nome?'); return; }
+  const lista = _colTab === 'materiais' ? 'materiais' : 'compras';
+  const i = raw.indexOf(' - '), titulo = i > 0 ? raw.slice(0, i).trim() : raw, sub = i > 0 ? raw.slice(i + 3).trim() : '';
+  postEvent({ type:'colecao.add', lista, titulo, sub }).then(schedulePrioRefresh)
+    .catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+  if (_lastSnap){ _lastSnap.colecoes = _lastSnap.colecoes || { itens: [] };
+    _lastSnap.colecoes.itens.unshift({ id:'tmp' + Date.now(), lista, titulo, sub, feito:false, tmp:true });
+    renderColModal(); render(_lastSnap); }
+  $('colNovo').value = ''; $('colNovo').focus();
+}
+function colMexer(tipo, lista, id, feito){
+  if (String(id).startsWith('tmp')){ flashError('espera sincronizar uns segundos'); return; }
+  const evt = tipo === 'toggle' ? { type:'colecao.toggle', lista, itemId:id, feito } : { type:'colecao.remove', lista, itemId:id };
+  postEvent(evt).then(schedulePrioRefresh).catch(err => { flashError(err.message || 'falha ao enviar'); refreshForcado(); });
+  const arr = (_lastSnap && _lastSnap.colecoes && _lastSnap.colecoes.itens) || [];
+  const k = arr.findIndex(x => x.id === id);
+  if (k >= 0){ if (tipo === 'toggle') arr[k].feito = feito; else arr.splice(k, 1); }
+  renderColModal(); render(_lastSnap);
+}
+
 function openListaModal(){
   const lst = (_lastSnap && _lastSnap.leituraLista) || null;
   if (!lst){ flashError('lista ainda não sincronizada'); return; }
@@ -2300,6 +2399,19 @@ const onCardClick = async (e) => {
   if (ev === 'mente.terapia'){ openTerapiaModal(); return; }
   if (ev === 'mente.vicios'){ openViciosModal(); return; }
   if (ev === 'mente.musicas'){ openMusModal(); return; }
+  if (ev === 'col.abrir'){ openColModal(btn.dataset.lista || 'compras'); return; }   // COLECOES-2026-11-17
+  if (ev === 'hoje.confirmar' || ev === 'central.feita' || ev === 'central.pular'){   // HOJE-2026-11-17
+    const evt = ev === 'hoje.confirmar' ? { type:'hoje.confirmar' } : { type:ev, t: btn.dataset.t || '' };
+    if (_lastSnap && _lastSnap.hoje){
+      if (ev === 'hoje.confirmar') _lastSnap.hoje.confirmado = true;
+      else { _lastSnap.hoje.confirmado = true; const f = _lastSnap.hoje.fila || [];
+        if (ev === 'central.feita') f.shift(); else if (f.length > 1) f.push(f.shift()); }
+      render(_lastSnap);
+    }
+    try{ await postEvent(evt); schedulePrioRefresh(); }
+    catch(err){ flashError(err.message || 'falha ao enviar'); refreshForcado(); }
+    return;
+  }
   if (ev === 'leit.lista'){ openListaModal(); return; }
   if (ev === 'leit.fin'){ openFinModal(); return; }                                    // PARIDADE-2026-09-08
   if (ev === 'leit.hl'){ openHlModal(btn.dataset.book, btn.dataset.title || 'livro'); return; }
@@ -2564,6 +2676,17 @@ $('vicCancel').addEventListener('click', () => { $('viciosModal').hidden = true;
 $('viciosModal').addEventListener('click', e => { if (e.target === $('viciosModal')) $('viciosModal').hidden = true; });
 /* MUSICAS-2026-09-02 */
 $('musFechar').addEventListener('click', () => { $('musModal').hidden = true; });
+/* COLECOES-2026-11-17 */
+$('colFechar').addEventListener('click', () => { $('colModal').hidden = true; });
+$('colModal').addEventListener('click', e => { if (e.target === $('colModal')) $('colModal').hidden = true; });
+$('colTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _colTab = b.dataset.ct; $('colBusca').value = ''; renderColModal(); } });
+$('colBusca').addEventListener('input', renderColModal);
+$('colAdd').addEventListener('click', colAdd);
+$('colNovo').addEventListener('keydown', e => { if (e.key === 'Enter') colAdd(); });
+$('colLista').addEventListener('click', e => {
+  const t = e.target.closest('[data-cid]'); if (t){ colMexer('toggle', t.dataset.cl, t.dataset.cid, t.dataset.cf !== '1'); return; }
+  const r = e.target.closest('[data-crm]'); if (r){ colMexer('remove', r.dataset.cl, r.dataset.crm); }
+});
 $('musModal').addEventListener('click', e => { if (e.target === $('musModal')) $('musModal').hidden = true; });
 $('musTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _musTab = b.dataset.mt; renderMusModal(); } });
 $('musAdd').addEventListener('click', musAddPhone);

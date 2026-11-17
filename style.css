@@ -621,3 +621,16 @@ button.pil-item span,button.dh-item span{font-size:12px;color:var(--muted)}
   padding:10px 13px;font-size:12.5px;line-height:1.45;display:flex;align-items:center;gap:10px;justify-content:space-between}
 .push-falha .mini-btn{flex:none}
 body.tem-push-falha .wrap{padding-bottom:132px}
+
+/* HOJE-2026-11-17 · a próxima da Central em cima das prioridades */
+.hoje-prox{padding:8px 10px;margin:0 0 10px;border-left:3px solid #e8734f;border-radius:6px;background:rgba(232,115,79,.07)}
+.hoje-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;opacity:.7}
+.hoje-t{font-weight:600;margin:2px 0}
+.hoje-sub{font-size:12.5px;opacity:.75;margin-top:2px}
+.hoje-ok{margin:0 0 10px}
+.hoje-okd{margin:0 0 10px}
+/* COLECOES-2026-11-17 */
+.col-home{display:flex;gap:8px;flex-wrap:wrap}
+.col-home .mark-btn{flex:1}
+#colBusca{width:100%;margin:4px 0 8px;box-sizing:border-box}
+.col-feito .mus-nm b{text-decoration:line-through;opacity:.55}
