@@ -587,9 +587,10 @@ function hojeBlock(){
   if (top){
     out += `<div class="hoje-lbl">próxima</div><div class="hoje-t">${escapeHtml(top.t || '')}</div>` +
       ((top.frente || top.porque) ? `<div class="hoje-sub">${escapeHtml([top.frente, top.porque].filter(Boolean).join(' · '))}</div>` : '') +
-      (fila[1] ? `<div class="hoje-sub">depois: ${escapeHtml(fila[1].t || '')}</div>` : '') +
-      `<div class="pv-btns"><button class="mark-btn" data-ev="central.feita" data-t="${escapeHtml(top.t || '')}">feita ✓</button>` +
-      (fila.length > 1 ? `<button class="mark-btn ghost-btn" data-ev="central.pular" data-t="${escapeHtml(top.t || '')}">pular ↷</button>` : '') + '</div>';
+      (top.seTravar ? `<div class="hoje-sub"><i>se travar: ${escapeHtml(top.seTravar)}</i></div>` : '') +   // VEREDITO-2026-11-17
+      `<div class="pv-btns"><button class="mark-btn" data-ev="central.feita" data-t="${escapeHtml(top.t || '')}">feita ✓</button></div>` +
+      /* VEREDITO-2026-11-17 · "pular" virou "trocar por": ele escolhe entre as outras da fila (Patall 2008) */
+      fila.slice(1).map(x => `<button class="mark-btn ghost-btn hoje-troca" data-ev="central.escolher" data-t="${escapeHtml(top.t || '')}" data-alvo="${escapeHtml(x.t || '')}">trocar por: ${escapeHtml(x.t || '')}</button>`).join('');
   } else {
     out += `<div class="hoje-sub">sem próxima definida · pede ao Claude: “atualiza a próxima da Central”</div>`;
   }
@@ -2400,12 +2401,14 @@ const onCardClick = async (e) => {
   if (ev === 'mente.vicios'){ openViciosModal(); return; }
   if (ev === 'mente.musicas'){ openMusModal(); return; }
   if (ev === 'col.abrir'){ openColModal(btn.dataset.lista || 'compras'); return; }   // COLECOES-2026-11-17
-  if (ev === 'hoje.confirmar' || ev === 'central.feita' || ev === 'central.pular'){   // HOJE-2026-11-17
-    const evt = ev === 'hoje.confirmar' ? { type:'hoje.confirmar' } : { type:ev, t: btn.dataset.t || '' };
+  if (ev === 'hoje.confirmar' || ev === 'central.feita' || ev === 'central.pular' || ev === 'central.escolher'){   // HOJE-2026-11-17
+    const evt = ev === 'hoje.confirmar' ? { type:'hoje.confirmar' } : { type:ev, t: btn.dataset.t || '', alvo: btn.dataset.alvo || undefined };
     if (_lastSnap && _lastSnap.hoje){
       if (ev === 'hoje.confirmar') _lastSnap.hoje.confirmado = true;
       else { _lastSnap.hoje.confirmado = true; const f = _lastSnap.hoje.fila || [];
-        if (ev === 'central.feita') f.shift(); else if (f.length > 1) f.push(f.shift()); }
+        if (ev === 'central.feita') f.shift();
+        else if (ev === 'central.escolher'){ const k = f.findIndex(x => x.t === btn.dataset.alvo); if (k > 0){ const [x] = f.splice(k, 1); const topo = f.shift(); f.unshift(x); f.push(topo); } }
+        else if (f.length > 1) f.push(f.shift()); }
       render(_lastSnap);
     }
     try{ await postEvent(evt); schedulePrioRefresh(); }
