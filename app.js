@@ -1087,12 +1087,13 @@ function renderCards(snap){
   // COLECOES-2026-11-17 · fase 3 no celular: compras, materiais, músicas, notas e livros numa busca só.
   if (snap.colecoes || snap.musicas || snap.notas){
     const it = (snap.colecoes && snap.colecoes.itens) || [];
-    const nC = it.filter(x => x.lista === 'compras' && !x.feito).length;
+    /* MATERIAIS-COLECOES-2026-11-22 · compras saiu (app externo); materiais vêm da Bancada, com o que falta repor */
+    const nC = it.filter(x => x.lista === 'materiais' && x.repor).length;
     const nN = Array.isArray(snap.notas) ? snap.notas.length : 0;
     const nM = (snap.musicas && Array.isArray(snap.musicas.itens)) ? snap.musicas.itens.filter(m => m && !m.ouvido).length : 0;
-    parts.push(card('Coleções', '◈', nC ? `${nC} pra comprar` : '',
-      `<div class="col-home"><button class="mark-btn" data-ev="col.abrir" data-lista="compras">🛒 compras${nC ? ` (${nC})` : ''}</button>` +
-      `<button class="mark-btn ghost-btn" data-ev="col.abrir" data-lista="tudo">🔎 buscar em tudo</button></div>` +
+    parts.push(card('Coleções', '◈', nC ? `${nC} pra repor` : '',
+      `<div class="col-home"><button class="mark-btn ghost-btn" data-ev="col.abrir" data-lista="tudo">🔎 buscar em tudo</button>` +
+      `<button class="mark-btn ghost-btn" data-ev="col.abrir" data-lista="materiais">🪡 materiais${nC ? ` (${nC} pra repor)` : ''}</button></div>` +
       `<div class="book-acts"><button class="mini-btn" data-ev="mente.notas">🗒 notas (${nN})</button>` +
       `<button class="mini-btn" data-ev="mente.musicas">🎵 músicas (${nM})</button></div>`));
   }
@@ -1932,12 +1933,12 @@ function musAddPhone(){
 
 /* ---------- COLECOES-2026-11-17 · uma janela com busca: compras e materiais (marcar/tirar/adicionar daqui),
    músicas, notas e livros (busca; editar segue nas telas deles). ---------- */
-let _colTab = 'compras';
-const COL_LBL = { compras:'compras', materiais:'materiais', musicas:'músicas', notas:'notas', livros:'livros' };
+let _colTab = 'tudo';
+const COL_LBL = { materiais:'materiais', musicas:'músicas', notas:'notas', livros:'livros' };
 function colNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 function colItens(){
   const s = _lastSnap || {}, out = [];
-  ((s.colecoes && s.colecoes.itens) || []).forEach(x => out.push(x));
+  ((s.colecoes && s.colecoes.itens) || []).filter(x => x.lista === 'materiais').forEach(x => out.push(x));
   ((s.musicas && s.musicas.itens) || []).filter(Boolean).forEach(m => out.push({ id:m.id, lista:'musicas', titulo:m.titulo||'', sub:m.artista||'', feito:!!m.ouvido }));
   (Array.isArray(s.notas) ? s.notas : []).forEach(n => out.push({ id:n.id, lista:'notas', titulo:n.title||'(sem título)', sub:String(n.body||'').replace(/\s+/g,' ').slice(0,120), feito:false, ro:true }));
   const L = s.leituraLista || {};
@@ -1946,27 +1947,27 @@ function colItens(){
   return out;
 }
 function openColModal(lista){
-  _colTab = lista || 'compras';
+  _colTab = lista || 'tudo';
   $('colBusca').value = ''; $('colNovo').value = '';
   renderColModal(); $('colModal').hidden = false;
 }
 function renderColModal(){
   const todos = colItens(), q = colNorm($('colBusca').value.trim());
-  const abas = ['compras','materiais','tudo'];
+  const abas = ['tudo','materiais','musicas','notas','livros'];
   $('colTabs').innerHTML = abas.map(t => `<button data-ct="${t}" class="${t===_colTab?'on':''}">${t==='tudo'?'tudo':COL_LBL[t]}</button>`).join('');
   let lista = q ? todos.filter(x => colNorm(x.titulo + ' ' + x.sub).includes(q))
-                : todos.filter(x => _colTab === 'tudo' ? (x.lista === 'compras' || x.lista === 'materiais') : x.lista === _colTab);
-  if (!q && _colTab !== 'tudo') lista.sort((a,b) => (a.feito?1:0) - (b.feito?1:0));
-  const nC = todos.filter(x => x.lista === 'compras' && !x.feito).length;
-  $('colN').textContent = nC ? `· ${nC} pra comprar` : '';
-  const podeMexer = x => x.lista === 'compras' || x.lista === 'materiais';
+                : todos.filter(x => _colTab === 'tudo' || x.lista === _colTab);
+  if (!q && _colTab === 'materiais') lista.sort((a,b) => (b.repor?1:0) - (a.repor?1:0));
+  const nC = todos.filter(x => x.lista === 'materiais' && x.repor).length;
+  $('colN').textContent = nC ? `· ${nC} pra repor` : '';
+  const podeMexer = x => false;   /* materiais se editam na Bancada (Mac); aqui é consulta */
   $('colLista').innerHTML = lista.slice(0, 200).map(x => `
     <div class="mus-row ${x.feito ? 'col-feito' : ''}">
-      ${podeMexer(x) ? `<button class="mus-tg" data-cid="${escapeHtml(x.id)}" data-cl="${x.lista}" data-cf="${x.feito?1:0}">${x.feito ? '↩' : '✓'}</button>` : `<span class="mus-ic">${({musicas:'🎵',notas:'🗒',livros:'📖'})[x.lista] || '·'}</span>`}
-      <span class="mus-nm"><b>${escapeHtml(x.titulo)}</b>${x.sub ? `<span>${escapeHtml(x.sub)}</span>` : ''}${(q || _colTab === 'tudo') ? `<span>${COL_LBL[x.lista] || ''}</span>` : ''}</span>
+      ${podeMexer(x) ? `<button class="mus-tg" data-cid="${escapeHtml(x.id)}" data-cl="${x.lista}" data-cf="${x.feito?1:0}">${x.feito ? '↩' : '✓'}</button>` : `<span class="mus-ic">${({musicas:'🎵',notas:'🗒',livros:'📖',materiais:'🪡'})[x.lista] || '·'}</span>`}
+      <span class="mus-nm"><b>${escapeHtml(x.titulo)}${x.repor ? ' · <span style="color:#e8734f">repor</span>' : ''}</b>${x.sub ? `<span>${escapeHtml(x.sub)}</span>` : ''}${(q || _colTab === 'tudo') ? `<span>${COL_LBL[x.lista] || ''}</span>` : ''}</span>
       ${podeMexer(x) ? `<button class="mus-rm" data-crm="${escapeHtml(x.id)}" data-cl="${x.lista}">✕</button>` : ''}
     </div>`).join('') || `<div class="leit-hint">${q ? 'nada encontrado' : 'lista vazia'}</div>`;
-  $('colAddRow').hidden = !!q || _colTab === 'tudo';
+  $('colAddRow').hidden = true; $('colAdd').hidden = true;   /* MATERIAIS-COLECOES-2026-11-22 · sem compras, nada a adicionar daqui */
   $('colNovo').placeholder = _colTab === 'materiais' ? 'material - detalhe' : 'o que comprar - quanto';
 }
 function colAdd(){
