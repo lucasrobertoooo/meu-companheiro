@@ -142,7 +142,13 @@ function todayStr(){
   // AUDIT-2026-09-02 · sem `pub` (Mac antigo) a idade é indetectável e `snapshotDefasado` devolve false
   // — um cache de dias confiaria no snap.date e dataria eventos no dia errado. Sem pub → corte local
   // (que usa o MESMO corteH vindo do snapshot, então o resultado coincide quando o cache é fresco).
-  if (_lastSnap && _lastSnap.date && idadeBatimentoH(_lastSnap) != null && !snapshotDefasado(_lastSnap)) return _lastSnap.date;
+  // AUDITORIA-2026-11-24 · Mac publicou à 01h (dia D-1) e dormiu: às 08h o snapshot ainda é "fresco" (<12h) e os eventos
+  // iam pro dia anterior. Agora vale o MAIOR entre o dia do Mac e o dia lógico local.
+  if (_lastSnap && _lastSnap.date && idadeBatimentoH(_lastSnap) != null && !snapshotDefasado(_lastSnap)) {
+    const c0 = (typeof _lastSnap.corteH === 'number') ? _lastSnap.corteH : 4;
+    let loc = null; try { if (globalThis.Regras && Regras.hoje) loc = Regras.hoje(c0); } catch(e){}
+    return (loc && loc > _lastSnap.date) ? loc : _lastSnap.date;
+  }
   // REVISAO-2026-08-26 · o corte é CONFIGURÁVEL no Mac (0-12h) e aqui estava chumbado em 4h. Com o
   // FRESCOR, este fallback virou caminho quente — datar errado entre o corte antigo e o novo era real.
   // Usa o corte que veio no snapshot (mesmo que velho, é o que o Mac usa) e o cálculo do núcleo.
@@ -946,7 +952,7 @@ function renderCards(snap){
     // MOBI-AB-2026-08-24 · desde o SESSAO-FOCO (12/08) a sessão é A pernas / B flexão / leve, e o card do
     // celular ainda dizia só "marcar treino" — não sabia qual era o foco de hoje.
     const foco = (snap.mobi && snap.mobi.focoLabel)
-      ? `<div class="mobi-foco">hoje: <b>${escapeHtml(snap.mobi.focoLabel)}</b>${snap.mobi.semanaA != null ? ` <small>· A ${snap.mobi.semanaA} · B ${snap.mobi.semanaB} na semana</small>` : ''}</div>` : '';
+      ? `<div class="mobi-foco">hoje: <b>${escapeHtml(snap.mobi.focoLabel)}</b>${snap.mobi.semanaA != null ? ` <small>· ${(snap.mobi.semanaA||0)+(snap.mobi.semanaB||0)} na semana</small>` : ''}</div>` : '';
     daily.push({ key:'mob', title:'Mobilidade', ic:icon('mobilidade'), badge:'',
       body:`${foco}<button class="mark-btn ${pend?'wait':(done?'done':'')}" data-ev="mobilidade" data-done="${done?1:0}" ${(pend||(done&&!ownMob))?'disabled':''}>${lbl}</button>`,
       done, mini:'treino feito' });
@@ -963,7 +969,7 @@ function renderCards(snap){
 
   // PÉLVICO — 3 slots; toca pra marcar, toca de novo pra desfazer (só os marcados pelo celular).
   if (snap.pelvico){
-    const pv = snap.pelvico, n = pv.done||0, tot = pv.total||3, done = n >= tot;
+    const pv = snap.pelvico, n = pv.done||0, tot = pv.total||2, done = n >= tot;   // AUDITORIA-2026-11-24 · v3 = 2 de força
     // UNDO-FANTASMA-2026-08-24 · só dá pra desfazer o que o CELULAR marcou. Antes o "−1" aparecia sempre
     // que o total > 0 — e se a sessão tinha vindo do Mac, ele decrementava a UI e voltava no refresh.
     const own = (pv.own == null) ? n : pv.own;
@@ -2428,8 +2434,10 @@ const onCardClick = async (e) => {
   // PRIORIDADE toggle — OTIMISTA: muda na HORA no celular; o Mac reconcilia em 2º plano.
   if (ev === 'intent.toggle'){
     const id = Number(btn.dataset.id);
-    optimisticPrio(pr => { const it = pr.itens.find(i => i.id === id); if (it) it.done = !it.done; });
-    try{ await postEvent({ type:'intent.toggle', intentId:id }); schedulePrioRefresh(); }
+    // AUDITORIA-2026-11-24 · manda o estado DESEJADO (antes o Mac invertia o que encontrasse e desfazia o que já estava marcado lá)
+    let alvo = null;
+    optimisticPrio(pr => { const it = pr.itens.find(i => i.id === id); if (it) { it.done = !it.done; alvo = it.done; } });
+    try{ await postEvent({ type:'intent.toggle', intentId:id, done: alvo }); schedulePrioRefresh(); }
     catch(err){ flashError(err.message || 'falha ao enviar'); refreshForcado(); }
     return;
   }
