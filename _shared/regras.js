@@ -87,7 +87,7 @@
       else if (r.status === 'Pago') { /* realizado — fora do pendente */ }
       else if (r.status !== 'Cancelado' && CATS_PENDENTES.indexOf(r.cat) >= 0) pend[r.cat] += r.valor || 0;
       if (r.cat === 'Variável' && String(r.label || '').toLowerCase().indexOf('livre') >= 0) {
-        livres = (livres || 0) + (r.valor || 0);
+        livres = (livres || 0) + ((r.status === 'Pago' || r.status === 'Cancelado') ? 0 : (r.valor || 0));   /* 24/11 */
       }
     });
     var previsto = pend.Fixo + pend['Variável'] + pend['Cartão'];

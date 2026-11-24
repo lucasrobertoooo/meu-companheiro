@@ -410,8 +410,10 @@ function card(title, ic, badge, body){
 }
 
 // otimista: limpa o pendente quando o snapshot confirma o alvo; retorna se ainda está pendente.
+const _pendingAt = {};   // 24/11 · o Mac pode recusar: em 2 min o botão solta sozinho
 function pendingFor(key, done){
-  if (key in _pending && _pending[key] === done) delete _pending[key];
+  if (key in _pending && !_pendingAt[key]) _pendingAt[key] = Date.now();
+  if (key in _pending && (_pending[key] === done || Date.now() - (_pendingAt[key] || 0) > 120000)){ delete _pending[key]; delete _pendingAt[key]; }
   return key in _pending;
 }
 // botão "marcar tudo / limpar" de uma rotina do skincare (toggle da rotina inteira)
@@ -902,7 +904,7 @@ function renderCards(snap){
 
   // PRIORIDADES — done só quando não sobra pendente. Toggle já desmarca por item.
   if (snap.prioridades){
-    const pr = snap.prioridades, done = (pr.total > 0 && pr.pending === 0);
+    const pr = snap.prioridades, done = (pr.total > 0 && pr.pending === 0) && !(snap.hoje && snap.hoje.fila && snap.hoje.fila.length);   /* 24/11 · sumia como "tudo feito" com a próxima esperando */
     daily.push({ key:'prio', title:'Hoje', ic:icon('prioridades'), badge:`${pr.pending ?? 0}/${pr.total ?? 0}`   /* GUARDA-2026-09-09 · imprimia "undefined/undefined" */, body:prioBody(pr), done, mini:'tudo feito' });
   }
 
@@ -1020,7 +1022,7 @@ function renderCards(snap){
         <button class="mini-btn" data-ev="leit.lista">📚 lista de leitura (${nLista})</button>
         <button class="mini-btn" data-ev="leit.fin">📕 ${lst.fin || 0} terminado${(lst.fin||0)===1?'':'s'}${lst.finAno?` · ${lst.finAno} no ano`:''}</button>
       </div>` : '';
-    daily.push({ key:'leit', title:'Leitura', ic:icon('leitura'), badge: stk > 0 ? `${stk}d` : '',
+    daily.push({ key:'leit', title:'Leitura', ic:icon('leitura'), badge: '',   /* 24/11 · sem dias seguidos */
       body:`<div class="book-list">${rows}</div>${rodape}`, done: books.length > 0 && books.every(b => b.done), mini:'lido' });
   } else if (snap.leituraLista){
     /* sem livro aberto: o card vive só com a lista (no Mac o backlog aparece sempre) */
@@ -1221,7 +1223,28 @@ function renderVital(snap){
   el.innerHTML = ordem.map(k => `<span class="${dims[k] ? 'on' : ''}">${nomes[k] || k}</span>`).join('');
 }
 
+/* 24/11 · de manhã, com o Mac dormindo, o snapshot ainda é de ontem e a tela dizia "remédio tomado hoje". O que é DO DIA
+   zera na tela quando o dia lógico virou; o resto (listas, financeiro) continua. */
+function snapDoDia(snap){
+  try{
+    if (!snap || !snap.date || todayStr() <= snap.date) return snap;
+    const c = JSON.parse(JSON.stringify(snap));
+    c._virou = true; c.date = todayStr();
+    Object.keys(c.doneToday || {}).forEach(k => { c.doneToday[k] = false; });
+    if (c.water){ c.water.ml = 0; c.water.pct = 0; c.water.bottles = 0; }
+    if (c.pelvico){ c.pelvico.done = 0; c.pelvico.own = 0; }
+    if (c.vital) c.vital = {};
+    if (c.hoje) c.hoje.confirmado = false;
+    if (c.leitura && Array.isArray(c.leitura.books)) c.leitura.books.forEach(b => { b.done = false; });
+    c.mobiOwnHoje = false;
+    if (c.creature) c.creature.cap = 'um dia novo';
+    if (c.descanso && /hoje/.test(String(c.descanso.motivo||''))) c.descanso = { ativo:false };
+    if (c.pilula) c.pilula.lida = false;
+    return c;
+  }catch(e){ return snap; }
+}
 function render(snap){
+  snap = snapDoDia(snap);
   try{ renderFilaAviso(); }catch(e){}   // FILA-OFFLINE-2026-08-24
   _lastSnap = snap;
   document.body.classList.remove('loading', 'needcfg');
@@ -1259,9 +1282,10 @@ async function refresh(){
   if (_dragging) return;                 // não repinta no meio de um arraste
   try{
     const snap = await fetchSnapshot();
-    if (snap === NOT_MODIFIED){ if (_lastSnap) renderFreshness(_lastSnap); return; }   // só atualiza o "há X min"
+    const virou = _lastSnap && _lastSnap.date && todayStr() > _lastSnap.date;   // 24/11 · app retomado de manhã
+    if (snap === NOT_MODIFIED){ if (_lastSnap){ if (virou) render(_lastSnap); else renderFreshness(_lastSnap); } return; }   // só atualiza o "há X min"
     const key = stripTs(snap);          // dedup sem o ts (igual ao Mac) → não repinta/pisca à toa
-    if (key === _lastRendered){ renderFreshness(snap); return; }
+    if (key === _lastRendered){ if (virou) render(snap); else renderFreshness(snap); return; }
     render(snap);
     /* AUDIT-2026-09-02 · dedup e cache só DEPOIS do render dar certo. Antes, um snapshot que quebrasse o
        render já estava gravado como "renderizado" E como cache: o catch repintava o MESMO snapshot
@@ -1380,7 +1404,8 @@ async function atualizarBadge(snap){
   try{
     const d = (snap && snap.doneToday) || {};
     let n = 0;
-    ['agua','comer','remedios','skincare','meditacao','leitura','mobilidade','pelvico'].forEach(k => { if (d[k] === false) n++; });
+    ['agua','remedios','leitura','mobilidade'].forEach(k => { if (d[k] === false) n++; });
+    if (snap && snap.pelvico && snap.pelvico.total && (snap.pelvico.done || 0) < snap.pelvico.total) n++;
     const pr = snap && snap.prioridades;
     if (pr && typeof pr.pending === 'number') n += pr.pending;
     if (n > 0) await navigator.setAppBadge(n); else await navigator.clearAppBadge();
@@ -2344,10 +2369,12 @@ function saveReflModal(){
 /* ---------- editor de linha do financeiro (nova / editar / apagar) ---------- */
 let _finEditId = null;
 function finNewId(){ return 'm' + Date.now(); }   // id do celular = id real (mesmo nos 2 lados; sem temp-id)
+let _finAntes = null;
 function openFinEditor(id, cat){
   const fin = _lastSnap && _lastSnap.financeiro;
   const row = (id && fin) ? (fin.rows||[]).find(r => String(r.id) === String(id)) : null;
   _finEditId = row ? String(row.id) : null;
+  _finAntes = row ? Object.assign({}, row) : null;   // 24/11 · compara com o que você viu ao abrir
   $('finTitle').textContent = row ? 'Editar linha' : 'Nova linha';
   $('finLabel').value  = row ? (row.label||'') : '';
   $('finValor').value  = row ? String(row.valor||0).replace('.', ',') : '';
@@ -2370,13 +2397,18 @@ function saveFinEditor(){
   const venc = (!isNaN(vencRaw) && vencRaw >= 1 && vencRaw <= 31) ? vencRaw : null;
   const split = $('finSplit').checked;
   const nota = $('finNota').value.trim();
-  const mes = (_lastSnap && _lastSnap.financeiro && _lastSnap.financeiro.mes) || undefined;
+  const mes = _finMonth || (_lastSnap && _lastSnap.financeiro && _lastSnap.financeiro.mes) || undefined;   /* 24/11 · o mês da tela */
   const id = _finEditId;
   closeFinEditor();
   if (id){   // editar (OTIMISTA)
+    const ant = _finAntes || {};
+    const muda = { label, valor, cat, status, venc: (venc===null?'':venc), split, nota };   /* 24/11 · só o que mudou: mandar tudo desfazia edição feita no Mac */
+    const antes = { label:ant.label, valor:ant.valor, cat:ant.cat, status:ant.status, venc:(ant.venc==null?'':Number(ant.venc)), split:!!ant.split, nota:ant.nota||'' };
+    Object.keys(muda).forEach(k => { if (muda[k] === antes[k]) delete muda[k]; });
+    if (!Object.keys(muda).length) return;
     optimisticFin(fin => { const r = (fin.rows||[]).find(x => String(x.id) === id);
       if (r){ r.label=label; r.valor=valor; r.cat=cat; r.status=status; r.venc=venc||undefined; r.split=split; r.nota=nota||undefined; } });
-    postEvent({ type:'fin.edit', id, label, valor, cat, status, venc: (venc===null?'':venc), split, nota })
+    postEvent(Object.assign({ type:'fin.edit', id }, muda))
       .then(schedulePrioRefresh).catch(err => { flashError(err.message||'falha ao salvar'); refreshForcado(); });
   } else {   // nova — o celular gera o id (real = otimista)
     const nid = finNewId();
@@ -2568,8 +2600,13 @@ const onCardClick = async (e) => {
     btn.disabled = true; btn.textContent = undo ? 'desfazendo…' : 'enviado ✓';
     try{
       await postEvent(undo ? { type:'agua.bottle', undo:true } : { type:'agua.bottle' });
-      [6, 14, 24, 34].forEach(sec => setTimeout(refresh, sec * 1000));
-      setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 4000);
+      [14, 34, 65, 90].forEach(sec => setTimeout(refresh, sec * 1000));
+      /* 24/11 · a garrafa aparece na hora: sem isso o segundo toque somava outra */
+      const w = _lastSnap && _lastSnap.water;
+      if (w){ const d = (undo ? -1 : 1) * (w.bottleMl || 700);
+        w.ml = Math.max(0, (w.ml || 0) + d); w.bottles = Math.max(0, (w.bottles || 0) + (undo ? -1 : 1));
+        if (w.goalMl){ w.pct = Math.min(100, Math.round(w.ml / w.goalMl * 100)); if (_lastSnap.doneToday) _lastSnap.doneToday.agua = w.ml >= w.goalMl; }
+        render(_lastSnap); }
     }catch(err){ btn.disabled = false; btn.textContent = label; flashError(err.message || 'falha ao enviar'); }
     return;
   }
@@ -2597,9 +2634,11 @@ const onCardClick = async (e) => {
   btn.disabled = true; btn.textContent = target ? 'enviando…' : 'desfazendo…';
   try{
     await postEvent(evt);
-    _pending[key] = target;               // otimista até o snapshot confirmar (sobrevive aos re-renders)
+    _pending[key] = target; _pendingAt[key] = Date.now();               // otimista até o snapshot confirmar (sobrevive aos re-renders)
     // o Mac processa no tick (~15s) e publica novo snapshot → estes polls pegam a confirmação
-    [4, 9, 15, 22, 32].forEach(sec => setTimeout(refresh, sec * 1000));
+    [4, 9, 15, 22, 32, 50, 75].forEach(sec => setTimeout(refresh, sec * 1000));
+    setTimeout(() => { if (_lastSnap) render(_lastSnap); }, 121000);
+    if (_lastSnap) render(_lastSnap);     // 24/11 · mostra o pendente na hora (o ciclo do Mac é de 60 s)
   }catch(err){
     btn.disabled = false; btn.textContent = label;
     flashError(err.message || 'falha ao enviar');
@@ -2834,7 +2873,7 @@ $('cards').addEventListener('pointerdown', prioDragStart);
 document.addEventListener('pointermove', prioDragMove);
 document.addEventListener('pointerup', prioDragEnd);
 document.addEventListener('pointercancel', prioDragEnd);
-document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) refresh(); });
+document.addEventListener('visibilitychange', ()=>{ if (!document.hidden){ try{ if (_lastSnap && _lastSnap.date && todayStr() > _lastSnap.date) render(_lastSnap); }catch(e){} refresh(); } });
 
 if ('serviceWorker' in navigator){
   window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(()=>{}));
