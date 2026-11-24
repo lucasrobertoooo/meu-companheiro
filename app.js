@@ -1125,6 +1125,7 @@ function nowHHMM(){ const d=new Date(), p=n=>n<10?'0'+n:''+n; return p(d.getHour
 function cmNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 // modal "outro item" — busca em TODO o banco (acento-insensível), toca pra somar
 function openComerModal(){
+  if (!$('comerModal')) return;   // AUDITORIA-2026-11-24 · modal arquivado (decisão 13)
   const cm = _lastSnap && _lastSnap.comer; if (!cm || !cm.banco) return;
   _comerModalQ = '';
   $('comerModal').hidden = false;
@@ -1202,6 +1203,24 @@ function renderFreshness(snap){
   el.textContent = `atualizado ${hh}:${mm}`;
 }
 
+/* AUDITORIA-2026-11-24 · decisão 13: as 5 luzes (corpo, água, pausa, hoje, cultura) com a MESMA régua do Mac
+   (_estadoDia/_creatureVitality no companheiro.html): treino do dia, 1,5 L de água, uma pausa, o Hoje confirmado
+   ou uma prioridade feita, e livro em andamento ou pílula lida. A contagem vem do regras.js compartilhado. */
+function renderVital(snap){
+  const el = $('vital'); if (!el) return;
+  const d = snap.doneToday || {}, v = snap.vital || {}, w = snap.water || {}, pv = snap.pelvico || {};
+  const dims = {
+    corpo:   !!(d.pelvico || d.mobilidade || (pv.done || 0) > 0 || snap.mobiOwnHoje === true),
+    agua:    (w.ml || 0) >= 1500,
+    pausa:   (v.pausas || 0) > 0,
+    hoje:    !!((snap.hoje && snap.hoje.confirmado) || (v.prioridadesFeitas || 0) > 0),
+    cultura: !!(v.pilulaLida || d.leitura || (snap.leituraLista && snap.leituraLista.abertos > 0)),
+  };
+  const nomes = { corpo:'corpo', agua:'água', pausa:'pausa', hoje:'hoje', cultura:'cultura' };
+  const ordem = (globalThis.Regras && Regras.DIMS_VITALIDADE) || Object.keys(nomes);
+  el.innerHTML = ordem.map(k => `<span class="${dims[k] ? 'on' : ''}">${nomes[k] || k}</span>`).join('');
+}
+
 function render(snap){
   try{ renderFilaAviso(); }catch(e){}   // FILA-OFFLINE-2026-08-24
   _lastSnap = snap;
@@ -1213,6 +1232,7 @@ function render(snap){
      congelava a tela toda e ainda mentia sobre a causa. */
   try{ renderFreshness(snap); }catch(e){}
   try{ renderHero(snap.creature || {}); }catch(e){}
+  try{ renderVital(snap); }catch(e){}         // AUDITORIA-2026-11-24 · decisão 13
   try{ renderToday(snap); }catch(e){}
   try{ renderCards(snap); }catch(e){}
   try{ renderAvisosDoMac(snap); }catch(e){}    // CANAL-DE-VOLTA-2026-09-08
@@ -1703,6 +1723,7 @@ function diarioHist(){
   return (_lastSnap && Array.isArray(_lastSnap.diarioHist)) ? _lastSnap.diarioHist.filter(Boolean) : [];
 }
 function openDiarioHist(){
+  if (!$('diarioHistModal')) return;   // AUDITORIA-2026-11-24 · modal arquivado (decisão 13)
   /* PARIDADE-DIARIO-2026-09-08 · HOJE fica de fora: o card de hoje lê o `history` do state sagrado
      (outro arquivo), então uma edição por aqui não apareceria lá e o app se contradiria. Hoje se
      ajusta em "fechar o dia · revisar", que passa pelo hub. */
@@ -1718,6 +1739,7 @@ function openDiarioHist(){
   $('diarioHistModal').hidden = false;
 }
 function openDiarioEdit(date){
+  if (!$('diarioEditModal')) return;   // AUDITORIA-2026-11-24 · modal arquivado (decisão 13)
   const e = diarioHist().find(x => x && x.date === date); if (!e) return;
   if (_lastSnap && date === _lastSnap.date){ flashError('hoje se ajusta em "fechar o dia"'); return; }
   _deCtx = date; _deMood = e.mood || null;
@@ -1791,6 +1813,7 @@ function togglePinNota(){
 
 let _terTab = 'reg';
 function openTerapiaModal(){
+  if (!$('terapiaModal')) return;   // AUDITORIA-2026-11-24 · modal arquivado (decisão 13)
   _terTab = 'reg'; _terPaint();
   ['trSit','trEmo','trTho','trResp','trDist','tg1','tg2','tg3','tgw1','tgw2','tgw3','tgPessoa','tgPessoaWhy']
     .forEach(id => { $(id).value = ''; });
@@ -1848,6 +1871,7 @@ function abrirLapso(id, nome){
 }
 
 function openViciosModal(){
+  if (!$('viciosModal')) return;   // AUDITORIA-2026-11-24 · modal arquivado (decisão 13)
   _vicTab = 'halt'; _halt = {}; _lapsoCtx = null;
   $('vicLapsoForm').hidden = true; $('vicContLista').hidden = false;
   renderVicContadores();
@@ -2299,6 +2323,7 @@ function saveDayModal(){
 
 /* ---------- reflexão do dia (modal: pergunta + resposta). Sacro (+12 XP) → fire-and-forget pelo hub ---------- */
 function openReflModal(){
+  if (!$('reflModal')) return;   // AUDITORIA-2026-11-24 · modal arquivado (decisão 13)
   const rf = _lastSnap && _lastSnap.reflexao; if (!rf) return;
   $('reflModalQ').textContent = rf.question || '';
   $('reflInput').value = rf.answer || '';
@@ -2587,14 +2612,14 @@ $('extratoFull').addEventListener('click', onCardClick);
 // FIX-2026-07-31 · a lista de busca vive DENTRO de um modal, e onCardClick ignora cliques com modal
 // aberto (anti-vazamento) → o item pesquisado nunca era adicionado. Handler próprio: fecha a busca e
 // abre o seletor de porção direto.
-$('comerModalList').addEventListener('click', e => {
+$('comerModalList')?.addEventListener('click', e => {
   const btn = e.target.closest('[data-ev="comer.portion"]'); if (!btn) return;
   closeComerModal();
   openComerPortion(btn.dataset.id, btn.dataset.nome, +btn.dataset.prot||0, btn.dataset.medida||'');
 });
-$('comerSearch').addEventListener('input', function(){ _comerModalQ = this.value; renderComerModalList(); });
-$('comerModalClose').addEventListener('click', closeComerModal);
-$('comerModal').addEventListener('click', e => { if (e.target === $('comerModal')) closeComerModal(); });
+$('comerSearch')?.addEventListener('input', function(){ _comerModalQ = this.value; renderComerModalList(); });
+$('comerModalClose')?.addEventListener('click', closeComerModal);
+$('comerModal')?.addEventListener('click', e => { if (e.target === $('comerModal')) closeComerModal(); });
 // seletor de porção
 $('cmPortionBtns').addEventListener('click', e => {
   const opt = e.target.closest('[data-optprot]');
@@ -2642,19 +2667,19 @@ $('pilCorpo').addEventListener('click', e => {
   _pilTab = 'hoje'; _pilMostrar(pl); _pilPaint();
 });
 /* PARIDADE-DIARIO-2026-09-08 · histórico e edição de um dia passado */
-$('dhFechar').addEventListener('click', () => { $('diarioHistModal').hidden = true; });
-$('diarioHistModal').addEventListener('click', e => { if (e.target === $('diarioHistModal')) $('diarioHistModal').hidden = true; });
-$('dhCorpo').addEventListener('click', e => {
+$('dhFechar')?.addEventListener('click', () => { $('diarioHistModal').hidden = true; });
+$('diarioHistModal')?.addEventListener('click', e => { if (e.target === $('diarioHistModal')) $('diarioHistModal').hidden = true; });
+$('dhCorpo')?.addEventListener('click', e => {
   const b = e.target.closest('[data-dhdate]'); if (b) openDiarioEdit(b.dataset.dhdate);
 });
-$('deMoods').addEventListener('click', e => {
+$('deMoods')?.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   _deMood = b.dataset.mood;
   document.querySelectorAll('#deMoods button').forEach(x => x.classList.toggle('on', x.dataset.mood === _deMood));
 });
-$('deCancel').addEventListener('click', () => { $('diarioEditModal').hidden = true; _deCtx = null; });
-$('deSave').addEventListener('click', saveDiarioEdit);
-$('diarioEditModal').addEventListener('click', e => { if (e.target === $('diarioEditModal')){ $('diarioEditModal').hidden = true; _deCtx = null; } });
+$('deCancel')?.addEventListener('click', () => { $('diarioEditModal').hidden = true; _deCtx = null; });
+$('deSave')?.addEventListener('click', saveDiarioEdit);
+$('diarioEditModal')?.addEventListener('click', e => { if (e.target === $('diarioEditModal')){ $('diarioEditModal').hidden = true; _deCtx = null; } });
 $('pilulaModal').addEventListener('click', e => { if (e.target === $('pilulaModal')) $('pilulaModal').hidden = true; });
 $('notasFechar').addEventListener('click', () => { $('notasModal').hidden = true; });
 $('notaNova').addEventListener('click', () => openNotaEdit(null));
@@ -2668,24 +2693,24 @@ $('neCancel').addEventListener('click', closeNotaEdit);
 $('neApagar').addEventListener('click', apagarNota);
 $('nePin').addEventListener('click', togglePinNota);
 $('notaEditModal').addEventListener('click', e => { if (e.target === $('notaEditModal')) closeNotaEdit(); });
-$('terTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _terTab = b.dataset.t; _terPaint(); } });
-$('trScore').addEventListener('input', () => { $('trScoreV').textContent = $('trScore').value; });
-$('terSave').addEventListener('click', saveTerapia);
-$('terCancel').addEventListener('click', () => { $('terapiaModal').hidden = true; });
-$('terapiaModal').addEventListener('click', e => { if (e.target === $('terapiaModal')) $('terapiaModal').hidden = true; });
-$('vicTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return;
+$('terTabs')?.addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _terTab = b.dataset.t; _terPaint(); } });
+$('trScore')?.addEventListener('input', () => { $('trScoreV').textContent = $('trScore').value; });
+$('terSave')?.addEventListener('click', saveTerapia);
+$('terCancel')?.addEventListener('click', () => { $('terapiaModal').hidden = true; });
+$('terapiaModal')?.addEventListener('click', e => { if (e.target === $('terapiaModal')) $('terapiaModal').hidden = true; });
+$('vicTabs')?.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return;
   _vicTab = b.dataset.t;
   /* PARIDADE-VICIOS-2026-09-08 · trocar de aba abandona um lapso pela metade: volta pra lista, senão o
      botão continua dizendo "registrar lapso" numa aba que não tem formulário nenhum. */
   if (_vicTab !== 'cont'){ _lapsoCtx = null; $('vicLapsoForm').hidden = true; $('vicContLista').hidden = false; }
   else renderVicContadores();
   _vicPaint(); });
-$('haltChips').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _halt[b.dataset.h] = !_halt[b.dataset.h]; _vicPaint(); } });
-$('vsAntes').addEventListener('input', () => { $('vsAntesV').textContent = $('vsAntes').value; });
-$('vsDepois').addEventListener('input', () => { $('vsDepoisV').textContent = $('vsDepois').value; });
-$('vicSave').addEventListener('click', saveVicios);
-$('vicCancel').addEventListener('click', () => { $('viciosModal').hidden = true; });
-$('viciosModal').addEventListener('click', e => { if (e.target === $('viciosModal')) $('viciosModal').hidden = true; });
+$('haltChips')?.addEventListener('click', e => { const b = e.target.closest('button'); if (b){ _halt[b.dataset.h] = !_halt[b.dataset.h]; _vicPaint(); } });
+$('vsAntes')?.addEventListener('input', () => { $('vsAntesV').textContent = $('vsAntes').value; });
+$('vsDepois')?.addEventListener('input', () => { $('vsDepoisV').textContent = $('vsDepois').value; });
+$('vicSave')?.addEventListener('click', saveVicios);
+$('vicCancel')?.addEventListener('click', () => { $('viciosModal').hidden = true; });
+$('viciosModal')?.addEventListener('click', e => { if (e.target === $('viciosModal')) $('viciosModal').hidden = true; });
 /* MUSICAS-2026-09-02 */
 $('musFechar').addEventListener('click', () => { $('musModal').hidden = true; });
 /* COLECOES-2026-11-17 */
@@ -2742,11 +2767,11 @@ $('listaCorpo').addEventListener('click', e => {
   if (c && !c.disabled) openStartModal({ tId:c.dataset.tid, title:c.dataset.title, author:c.dataset.author, format:c.dataset.fmt || '' });
 });
 /* PARIDADE-LEITURA-2026-09-08 · terminados e destaques */
-$('vicContLista').addEventListener('click', e => {           // PARIDADE-VICIOS-2026-09-08
+$('vicContLista')?.addEventListener('click', e => {           // PARIDADE-VICIOS-2026-09-08
   const b = e.target.closest('[data-lapso]');
   if (b){ abrirLapso(b.dataset.lapso, b.dataset.nome || 'contador'); _vicPaint(); }
 });
-$('vicLapsoHalt').addEventListener('click', e => {
+$('vicLapsoHalt')?.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   _lapsoHalt[b.dataset.h] = !_lapsoHalt[b.dataset.h];
   b.classList.toggle('on', !!_lapsoHalt[b.dataset.h]);
@@ -2801,9 +2826,9 @@ $('dayMoods').addEventListener('click', e=>{
   [...document.querySelectorAll('#dayMoods .dmood')].forEach(x => x.classList.toggle('on', x === b));
   $('daySave').disabled = false;
 });
-$('reflSave').addEventListener('click', saveReflModal);
-$('reflCancel').addEventListener('click', closeReflModal);
-$('reflModal').addEventListener('click', e=>{ if (e.target === $('reflModal')) closeReflModal(); });
+$('reflSave')?.addEventListener('click', saveReflModal);
+$('reflCancel')?.addEventListener('click', closeReflModal);
+$('reflModal')?.addEventListener('click', e=>{ if (e.target === $('reflModal')) closeReflModal(); });
 // drag-and-drop de prioridades (pointer/touch)
 $('cards').addEventListener('pointerdown', prioDragStart);
 document.addEventListener('pointermove', prioDragMove);
